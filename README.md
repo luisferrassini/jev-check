@@ -23,7 +23,7 @@ There is so much AI slop everywhere so I made sure to write at least this sectio
 
 A small CLI that gates staged files on yes/no questions answered by Jev, the TypeSafe model (`https://api.typesafe.ai/v1/systemone`). It is built for coding agents: the agent runs `./jev-check gate .` like a test suite, and when it goes red, the agent fixes what each FAIL line names and runs it again.
 
-Every check is backed by fixtures: known pass and fail patches that prove its threshold separates clean files from real problems.
+The `public-release` check has known pass and fail fixtures used to evaluate its threshold. The `example` check is a demonstration and has no fixtures or configured gate threshold.
 
 ## Setup
 
