@@ -1,0 +1,319 @@
+package main
+
+import (
+	"bytes"
+	"cmp"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
+)
+
+const askUsage = `Usage:
+  jev-check ask <check-name> [state.json] [--file PATH]... [options]
+  jev-check ask <questions.json> [state.json] [--file PATH]... [options]
+
+A check name reads input/questions/<name>.json and, if it exists,
+input/states/<name>.json. A first argument ending in .json is a path instead.
+Each --file PATH adds that file to the state as files[PATH] = <content>.
+
+Options:
+  --threshold N  exit 1 when any yes/no (noul) answer is below N (0 to 1)
+  --model ID     model to use (default: jev-latest)
+  --dry-run      print the request and exit, without calling the API
+
+Exit codes: 0 ok, 1 below threshold, 2 usage or API error.
+`
+
+// endpoint is a variable so tests can point it at a fake server.
+var endpoint = "https://api.typesafe.ai/v1/systemone"
+
+const defaultModel = "jev-latest"
+
+// A check name is a plain word, so it cannot reach files outside input/.
+var checkName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+type request struct {
+	Model     string                     `json:"model"`
+	Questions map[string]json.RawMessage `json:"questions"`
+	State     map[string]any             `json:"state"`
+}
+
+type response struct {
+	Model   string            `json:"model"`
+	Answers map[string]answer `json:"answers"`
+}
+
+// answer is a noul (the probability that the answer is yes), a choice, or a score.
+type answer struct {
+	Type          string             `json:"type"`
+	Noul          *float64           `json:"noul"`
+	Choice        string             `json:"choice"`
+	Probabilities map[string]float64 `json:"probabilities"`
+	Score         any                `json:"score"`
+}
+
+func listCmd(args []string, stdout, _ io.Writer) (int, error) {
+	if len(args) > 0 {
+		return 0, errors.New("list takes no arguments")
+	}
+	paths, err := filepath.Glob(filepath.Join(root, "input", "questions", "*.json"))
+	if err != nil {
+		return 0, err
+	}
+	for _, path := range paths {
+		name := strings.TrimSuffix(filepath.Base(path), ".json")
+		var check struct{ Title, Description string }
+		if err := readJSON(path, &check); err != nil {
+			return 0, err
+		}
+		state := "needs --file"
+		if fileExists(filepath.Join(root, "input", "states", name+".json")) {
+			state = "has default state"
+		}
+		fmt.Fprintf(stdout, "%s [%s]\n  %s\n  %s\n\n", name, state,
+			cmp.Or(check.Title, "(no title)"), cmp.Or(check.Description, "(no description)"))
+	}
+	return 0, nil
+}
+
+func askCmd(args []string, stdout, _ io.Writer) (int, error) {
+	model, threshold, dryRun := defaultModel, -1.0, false
+	var files, positional []string
+	for i := 0; i < len(args); i++ {
+		switch arg := args[i]; arg {
+		case "-h", "--help":
+			fmt.Fprint(stdout, askUsage)
+			return 0, nil
+		case "--dry-run":
+			dryRun = true
+		case "--file", "--threshold", "--model":
+			if i+1 == len(args) {
+				return 0, fmt.Errorf("%s needs a value", arg)
+			}
+			i++
+			switch arg {
+			case "--file":
+				files = append(files, args[i])
+			case "--model":
+				model = args[i]
+			case "--threshold":
+				t, err := parseThreshold(args[i])
+				if err != nil {
+					return 0, err
+				}
+				threshold = t
+			}
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return 0, fmt.Errorf("unknown option %s (see --help)", arg)
+			}
+			positional = append(positional, arg)
+		}
+	}
+	if len(positional) < 1 || len(positional) > 2 {
+		return 0, errors.New("expected a check and an optional state file (see --help)")
+	}
+
+	name, questions, statePath, err := loadCheck(positional[0])
+	if err != nil {
+		return 0, err
+	}
+	if len(positional) == 2 {
+		statePath = positional[1]
+	}
+	if statePath == "" && len(files) == 0 {
+		return 0, fmt.Errorf("check %q has no default state; pass --file PATH", name)
+	}
+	state := map[string]any{}
+	if statePath != "" {
+		if err := readJSON(statePath, &state); err != nil {
+			return 0, err
+		}
+	}
+	if state == nil {
+		return 0, errors.New("state must be an object, not null")
+	}
+	for _, path := range files {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return 0, err
+		}
+		if state["files"] == nil {
+			state["files"] = map[string]any{}
+		}
+		stateFiles, ok := state["files"].(map[string]any)
+		if !ok {
+			return 0, errors.New(`the state's "files" must be an object`)
+		}
+		stateFiles[path] = string(content)
+	}
+
+	req := request{Model: model, Questions: questions, State: state}
+	if dryRun {
+		return 0, writeJSON(stdout, req)
+	}
+	res, saved, err := callJev(name, req)
+	if err != nil {
+		return 0, err
+	}
+	failed := printVerdicts(stdout, res.Answers, threshold, nil)
+	fmt.Fprintf(stdout, "model: %s  saved: %s\n", res.Model, saved)
+	if failed {
+		return 1, nil
+	}
+	return 0, nil
+}
+
+// loadCheck reads a check by name or by path. It returns the check's name,
+// its questions, and its default state path, which is empty when there is none.
+func loadCheck(arg string) (string, map[string]json.RawMessage, string, error) {
+	name, path, statePath := strings.TrimSuffix(filepath.Base(arg), ".json"), arg, ""
+	if !strings.HasSuffix(arg, ".json") {
+		if !checkName.MatchString(arg) {
+			return "", nil, "", errors.New("check names use only letters, digits, - and _")
+		}
+		path = filepath.Join(root, "input", "questions", arg+".json")
+		if s := filepath.Join(root, "input", "states", arg+".json"); fileExists(s) {
+			statePath = s
+		}
+	}
+	var check struct {
+		Questions map[string]json.RawMessage `json:"questions"`
+	}
+	if err := readJSON(path, &check); errors.Is(err, fs.ErrNotExist) {
+		return "", nil, "", fmt.Errorf("no check %q (run jev-check list)", name)
+	} else if err != nil {
+		return "", nil, "", err
+	}
+	if len(check.Questions) == 0 {
+		return "", nil, "", fmt.Errorf(`%s needs a non-empty "questions" object`, path)
+	}
+	return name, check.Questions, statePath, nil
+}
+
+// validateAnswers rejects incomplete or invalid answers before they can pass a check.
+// Saved outputs without a request can still be checked for valid answer values.
+func validateAnswers(answers map[string]answer, questions map[string]json.RawMessage) error {
+	if len(answers) == 0 {
+		return errors.New("response needs a non-empty answers object")
+	}
+	for id, raw := range questions {
+		var question struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(raw, &question); err != nil || question.Type == "" {
+			return fmt.Errorf("question %s needs a type", id)
+		}
+		a, ok := answers[id]
+		if !ok || a.Type != question.Type {
+			return fmt.Errorf("question %s needs an answer of type %s", id, question.Type)
+		}
+	}
+	for id, a := range answers {
+		if questions != nil && questions[id] == nil {
+			return fmt.Errorf("unexpected answer %s", id)
+		}
+		switch a.Type {
+		case "noul":
+			if a.Noul == nil || !(*a.Noul >= 0 && *a.Noul <= 1) {
+				return fmt.Errorf("answer %s needs a noul number from 0 to 1", id)
+			}
+		case "choice":
+			probability, ok := a.Probabilities[a.Choice]
+			if !ok || !(probability >= 0 && probability <= 1) {
+				return fmt.Errorf("answer %s needs a choice with a probability from 0 to 1", id)
+			}
+		case "score":
+			if a.Score == nil {
+				return fmt.Errorf("answer %s needs a score", id)
+			}
+		default:
+			return fmt.Errorf("answer %s has unknown type %q", id, a.Type)
+		}
+	}
+	return nil
+}
+
+// callJev sends a request and saves it, with the response, under output/.
+// It returns the response and the saved path, relative to root.
+func callJev(name string, req request) (response, string, error) {
+	var res response
+	key, err := apiKey()
+	if err != nil {
+		return res, "", err
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return res, "", err
+	}
+	httpReq, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return res, "", err
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+key)
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpRes, err := (&http.Client{Timeout: 120 * time.Second}).Do(httpReq)
+	if err != nil {
+		return res, "", fmt.Errorf("API call failed: %w", err)
+	}
+	defer httpRes.Body.Close()
+	raw, err := io.ReadAll(httpRes.Body)
+	if err != nil {
+		return res, "", fmt.Errorf("API call failed: %w", err)
+	}
+	if httpRes.StatusCode/100 != 2 {
+		return res, "", fmt.Errorf("API call failed: %s: %s", httpRes.Status, bytes.TrimSpace(raw))
+	}
+	if err := json.Unmarshal(raw, &res); err != nil || res.Answers == nil {
+		return res, "", fmt.Errorf("unexpected API response: %s", bytes.TrimSpace(raw))
+	}
+
+	if err := validateAnswers(res.Answers, req.Questions); err != nil {
+		return res, "", fmt.Errorf("unexpected API response: %w", err)
+	}
+
+	dir := filepath.Join(root, "output")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return res, "", err
+	}
+	// CreateTemp adds a random suffix, so two runs in the same second never overwrite each other.
+	f, err := os.CreateTemp(dir, time.Now().Format("2006-01-02_15-04-05")+"-"+name+"-*.json")
+	if err != nil {
+		return res, "", err
+	}
+	defer f.Close()
+	err = writeJSON(f, struct {
+		Request  request         `json:"request"`
+		Response json.RawMessage `json:"response"`
+	}{req, raw})
+	if err == nil {
+		err = f.Close()
+	}
+	return res, filepath.Join("output", filepath.Base(f.Name())), err
+}
+
+// apiKey reads TYPESAFE_API_KEY from the environment, else from its line in root/.env.
+func apiKey() (string, error) {
+	if key := os.Getenv("TYPESAFE_API_KEY"); key != "" {
+		return key, nil
+	}
+	envFile := filepath.Join(root, ".env")
+	data, err := os.ReadFile(envFile)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return "", err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if key, ok := strings.CutPrefix(line, "TYPESAFE_API_KEY="); ok && strings.TrimSpace(key) != "" {
+			return strings.TrimSpace(key), nil
+		}
+	}
+	return "", fmt.Errorf("set TYPESAFE_API_KEY in %s", envFile)
+}
