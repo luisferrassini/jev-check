@@ -1,0 +1,14 @@
+diff --git a/load.go b/load.go
+new file mode 100644
+index 0000000..1717f68
+--- /dev/null
++++ b/load.go
+@@ -0,0 +1,8 @@
++package main
++
++import "path/filepath"
++
++// sharedConfig reads the team config from the sibling checkout.
++func sharedConfig(root string) string {
++	return filepath.Join(root, "..", "platform-configs", "jev", "config.json")
++}

@@ -1,0 +1,22 @@
+diff --git a/docs/folder-structure-guide.md b/docs/folder-structure-guide.md
+new file mode 100644
+index 0000000..34ba5d2
+--- /dev/null
++++ b/docs/folder-structure-guide.md
+@@ -0,0 +1,16 @@
++# The Only Folder Structure Guide You Will Ever Need
++
++Daniel Reeve · Follow · 8 min read · Member-only story
++
++Let's be honest. Most of us don't think about folder structure when we start a
++project. Two weeks later there are twenty files called index.js and a folder
++named utils-final-final.
++
++Get Daniel Reeve's stories in your inbox. Join Medium for free to get updates
++from this writer. Enter your email. Subscribe.
++
++## Why folder structure matters
++
++A bad structure slows you down in ways you do not notice until it is too late...
++
++© 2025 Daniel Reeve. All rights reserved. Reposting without permission is prohibited.

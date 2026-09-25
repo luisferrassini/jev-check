@@ -1,0 +1,12 @@
+diff --git a/internal/config.go b/internal/config.go
+new file mode 100644
+index 0000000..2b5aae7
+--- /dev/null
++++ b/internal/config.go
+@@ -0,0 +1,6 @@
++package config
++
++// Questions about this file go to marta.lopes@gmail.com.
++
++// DataDir is where the tool keeps its runs.
++const DataDir = "/home/marta/dev/jev-tool/data"

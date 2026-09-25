@@ -1,0 +1,5 @@
+{
+  "files": {
+    "count_lines.py": "import sys\n\n\ndef count_lines(path):\n    with open(path) as f:\n        return sum(1 for _ in f)\n\n\nif __name__ == \"__main__\":\n    x = sys.argv[1]\n    print(count_lines(x))\n"
+  }
+}

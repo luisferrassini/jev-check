@@ -1,0 +1,445 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"maps"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+)
+
+const fakeAnswers = `{"model":"jev-test","answers":{
+  "a":{"type":"noul","noul":0.9},
+  "b":{"type":"noul","noul":0.3},
+  "c":{"type":"choice","choice":"x","probabilities":{"x":0.8,"y":0.2}}}}`
+
+// jevAnswers is what the fake server answers. A test may swap it and restore it.
+var jevAnswers string
+
+// setup points root at a temp folder that shares input/, and the API at a fake
+// server that answers each requested question, unless jevAnswers overrides it.
+// It returns the requests the server got.
+func setup(t *testing.T) *[]request {
+	t.Helper()
+	here, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root = t.TempDir()
+	if err := os.Symlink(filepath.Join(here, "input"), filepath.Join(root, "input")); err != nil {
+		t.Fatal(err)
+	}
+	var got []request
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer test" {
+			http.Error(w, "bad key", http.StatusUnauthorized)
+			return
+		}
+		var req request
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		got = append(got, req)
+		if jevAnswers != "" {
+			fmt.Fprint(w, jevAnswers)
+			return
+		}
+		answers := map[string]any{}
+		for id := range req.Questions {
+			value := 0.9
+			if id == "english_only" {
+				value = 0.3
+			}
+			if id == "english_only" && req.State["files"].(map[string]any)["b.go.patch"] != nil {
+				value = 0.1
+			}
+			answers[id] = map[string]any{"type": "noul", "noul": value}
+		}
+		json.NewEncoder(w).Encode(map[string]any{"model": "jev-test", "answers": answers})
+	}))
+	t.Cleanup(server.Close)
+	endpoint = server.URL
+	t.Setenv("TYPESAFE_API_KEY", "test")
+	return &got
+}
+
+// jev runs one command and returns its exit code and stdout.
+func jev(t *testing.T, args ...string) (int, string) {
+	t.Helper()
+	var stdout, stderr strings.Builder
+	code := run(args, &stdout, &stderr)
+	if stderr.Len() > 0 {
+		t.Logf("jev-check %s: stderr: %s", strings.Join(args, " "), stderr.String())
+	}
+	return code, stdout.String()
+}
+
+func writeFile(t *testing.T, path, content string) string {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func wantCode(t *testing.T, want int, args ...string) string {
+	t.Helper()
+	code, out := jev(t, args...)
+	if code != want {
+		t.Fatalf("jev-check %s: exit %d, want %d\n%s", strings.Join(args, " "), code, want, out)
+	}
+	return out
+}
+
+func TestAsk(t *testing.T) {
+	setup(t)
+	patch := writeFile(t, filepath.Join(t.TempDir(), "change.patch"), "print(\"hello\")\n")
+
+	if out := wantCode(t, 0, "list"); !strings.Contains(out, "public-release [needs --file]\n") {
+		t.Errorf("list: %s", out)
+	}
+
+	var req request
+	out := wantCode(t, 0, "ask", "--dry-run", "public-release", "--file", patch)
+	if err := json.Unmarshal([]byte(out), &req); err != nil {
+		t.Fatal(err)
+	}
+	if req.State["files"].(map[string]any)[patch] != "print(\"hello\")\n" || req.Questions["english_only"] == nil {
+		t.Errorf("dry run: %s", out)
+	}
+	out = wantCode(t, 0, "ask", "--dry-run", "example")
+	if err := json.Unmarshal([]byte(out), &req); err != nil || len(req.State["files"].(map[string]any)) == 0 {
+		t.Errorf("default state not sent: %v", err)
+	}
+
+	wantCode(t, 2, "ask", "public-release")
+	wantCode(t, 2, "ask", "../x", "--file", patch)
+	wantCode(t, 2, "ask", "public-release", "--file", patch, "--threshold", "2")
+	wantCode(t, 2, "ask", "no-such-check", "--file", patch)
+
+	out = wantCode(t, 1, "ask", "public-release", "--file", patch, "--threshold", "0.5")
+	for _, line := range []string{"FAIL  0.3  english_only\n", "ok    0.9  no_personal_info\n", "saved: output/"} {
+		if !strings.Contains(out, line) {
+			t.Errorf("missing %q in:\n%s", line, out)
+		}
+	}
+	wantCode(t, 0, "ask", "public-release", "--file", patch, "--threshold", "0.2")
+
+	t.Setenv("TYPESAFE_API_KEY", "wrong")
+	wantCode(t, 2, "ask", "public-release", "--file", patch)
+}
+
+func TestSecrets(t *testing.T) {
+	dir := t.TempDir()
+	// Fake keys are built at run time, so this file holds none.
+	r := strings.Repeat
+	leaks := [][2]string{
+		{"aws-access-key", "aws = AKIA" + r("Q", 16)},
+		{"env-secret", "export DB_PASSWORD=" + r("p4", 8)},
+		{"private-key", "-----BEGIN OPENSSH PRIV" + "ATE KEY-----"},
+		{"github-token", "token: ghp_" + r("a1", 18)},
+		{"gitlab-token", "glpat-" + r("x1", 10)},
+		{"slack-token", "xoxb-" + r("12", 6)},
+		{"stripe-key", "stripe = sk_live_" + r("a1", 12)},
+		{"google-api-key", "AIza" + r("B", 35)},
+		{"sk-api-key", "sk-ant-api03-" + r("c2", 12)},
+		{"jwt", "eyJ" + r("h", 12) + ".eyJ" + r("p", 12) + "." + r("s", 12)},
+		{"url-credentials", "postgres://app:s3cr3t" + "@db:5432"},
+		{"bearer-literal", "Authorization: Bearer " + r("t9", 12)},
+		{"quoted-secret", `api_key = "` + r("k7", 8) + `"`},
+	}
+	patch := "+++ b/x\n"
+	for _, leak := range leaks {
+		patch += "+" + leak[1] + "\n"
+	}
+	code, out := jev(t, "secrets", writeFile(t, filepath.Join(dir, "leak.patch"), patch))
+	if code != 1 {
+		t.Errorf("exit %d on keys, want 1", code)
+	}
+	for _, leak := range leaks {
+		if !strings.Contains(out, "looks like "+leak[0]+"\n") {
+			t.Errorf("%s not reported", leak[0])
+		}
+		if strings.Contains(out, leak[1]) {
+			t.Errorf("printed the secret for %s", leak[0])
+		}
+	}
+
+	clean := []string{`TOKEN=$(cat file)`, `api_key = os.environ["KEY"]`, `KEY=`, `API_KEY=your-api-key-here`,
+		`password = "changeme-please"`, `postgres://user:password@localhost`, `Authorization: Bearer $TOKEN`,
+		`SKILL_md = "a3b9c1d7e5f2a3b9c1d7e5f2a3b9c1d7"`}
+	wantCode(t, 0, "secrets", writeFile(t, filepath.Join(dir, "clean.patch"), "+"+strings.Join(clean, "\n+")+"\n"))
+
+	sources, _ := filepath.Glob("*.go")
+	for _, source := range sources {
+		content, err := os.ReadFile(source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		self := "+" + strings.ReplaceAll(string(content), "\n", "\n+")
+		if reports := scanSecrets(source, self); reports != nil {
+			t.Errorf("false positive on %s: %v", source, reports)
+		}
+	}
+	wantCode(t, 2, "secrets", filepath.Join(dir, "missing.patch"))
+}
+
+func TestJudge(t *testing.T) {
+	out := writeFile(t, filepath.Join(t.TempDir(), "out.json"), `{"response":`+fakeAnswers+`}`)
+	wantCode(t, 0, "judge", out, "0.5", "b=0.2")
+	got := wantCode(t, 1, "judge", out, "0.5")
+	if !strings.Contains(got, "FAIL  0.3  b\n") || !strings.Contains(got, "info  x 0.8  c\n") {
+		t.Errorf("judge output:\n%s", got)
+	}
+	wantCode(t, 2, "judge", out, "0.5", "zzz=0.1")
+	wantCode(t, 2, "judge", out, "0.5", "b=x")
+	wantCode(t, 2, "judge", out, "1.5")
+	for _, response := range []string{`{"answers":{}}`, `{"answers":{"a":{"type":"noul"}}}`} {
+		writeFile(t, out, `{"response":`+response+`}`)
+		wantCode(t, 2, "judge", out, "0")
+	}
+	writeFile(t, out, `{"request":{"questions":{"missing":{"type":"noul"}}},"response":`+fakeAnswers+`}`)
+	wantCode(t, 2, "judge", out, "0")
+}
+
+func gitRun(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+func TestGate(t *testing.T) {
+	requests := setup(t)
+	repo := t.TempDir()
+	wantCode(t, 2, "gate", repo) // not a git repository, so the gate must not pass
+
+	gitRun(t, repo, "init", "-q")
+	writeFile(t, filepath.Join(repo, "app.py"), "print(\"hello\")\n")
+	writeFile(t, filepath.Join(repo, "README.md"), "# doc\n")
+	writeFile(t, filepath.Join(repo, "output", "log"), "x\n")
+	writeFile(t, filepath.Join(repo, "project-context.json"), `{ "purpose": "Test project.", "exclude": ["output/"],
+  "checks": [{ "check": "public-release", "threshold": 0.5, "per_question": { "no_personal_info": 0.2 }, "skip": ["*.md"] }] }`)
+
+	var state struct {
+		Project map[string]any `json:"project"`
+		Tree    []string       `json:"tree"`
+	}
+	if err := json.Unmarshal([]byte(wantCode(t, 0, "context", repo)), &state); err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(state.Tree)
+	if fmt.Sprint(state.Project) != "map[purpose:Test project.]" || !slices.Equal(state.Tree, []string{"README.md", "app.py", "project-context.json"}) {
+		t.Errorf("context: %+v", state)
+	}
+
+	if out := wantCode(t, 0, "gate", repo); out != "nothing staged\n" {
+		t.Errorf("empty gate: %s", out)
+	}
+
+	// The fake answers english_only=0.3, so the gate passes only with a threshold at or below that.
+	gitRun(t, repo, "add", "app.py", "README.md")
+	out := wantCode(t, 1, "gate", repo)
+	if !strings.Contains(out, "== public-release app.py\n") || strings.Contains(out, "README") || !strings.HasSuffix(out, "gate: FAIL\n") {
+		t.Errorf("gate output:\n%s", out)
+	}
+	if len(*requests) != 1 {
+		t.Fatalf("sent %d requests, want 1", len(*requests))
+	}
+	sent := (*requests)[0].State
+	if files := sent["files"].(map[string]any); len(files) != 1 || files["app.py.patch"] == nil {
+		t.Errorf("gate sent files %v", slices.Collect(maps.Keys(files)))
+	}
+	if sent["project"].(map[string]any)["purpose"] != "Test project." {
+		t.Errorf("gate sent project %v", sent["project"])
+	}
+
+	// An unchanged patch comes from the cache, even when the tree changes. --no-cache sends it again.
+	writeFile(t, filepath.Join(repo, "new.txt"), "x\n")
+	if out := wantCode(t, 1, "gate", repo); !strings.Contains(out, "== public-release app.py (cached)\n") || len(*requests) != 1 {
+		t.Errorf("cache missed, %d requests:\n%s", len(*requests), out)
+	}
+	wantCode(t, 1, "gate", repo, "--no-cache")
+	if len(*requests) != 2 {
+		t.Errorf("--no-cache sent %d requests, want 2", len(*requests))
+	}
+	wantCode(t, 2, "gate", repo, "--bogus")
+
+	writeFile(t, filepath.Join(repo, "project-context.json"), `{ "checks": [{ "check": "public-release", "threshold": 0.2 }] }`)
+	gitRun(t, repo, "add", "project-context.json")
+	if out := wantCode(t, 0, "gate", repo); !strings.HasSuffix(out, "gate: PASS\n") {
+		t.Errorf("gate output:\n%s", out)
+	}
+
+	for _, bad := range []string{
+		`{ "checks": [{ "check": "public-release", "threshold": 0.2, "per_question": { "typo": 0.5 } }] }`,
+		`{ "checks": [{ "check": "public-release" }] }`,
+		`{ "checks": [] }`,
+	} {
+		writeFile(t, filepath.Join(repo, "project-context.json"), bad)
+		wantCode(t, 2, "gate", repo)
+	}
+	writeFile(t, filepath.Join(repo, "project-context.json"), `{ "checks": [{ "check": "public-release", "threshold": 0.2 }] }`)
+
+	*requests = nil
+	writeFile(t, filepath.Join(repo, "app.py"), "aws = \"AKIA"+strings.Repeat("Q", 16)+"\"\n")
+	gitRun(t, repo, "add", "app.py")
+	out = wantCode(t, 1, "gate", repo)
+	if !strings.Contains(out, "SECRET  app.py.patch line") {
+		t.Errorf("gate did not report the key:\n%s", out)
+	}
+	for _, req := range *requests {
+		if req.State["files"].(map[string]any)["app.py.patch"] != nil {
+			t.Error("gate sent a patch with a key")
+		}
+	}
+}
+
+func TestEval(t *testing.T) {
+	setup(t)
+	repo := t.TempDir()
+	gitRun(t, repo, "init", "-q")
+	config := func(threshold string) {
+		writeFile(t, filepath.Join(repo, "project-context.json"), `{ "exclude": ["fixtures/"], "checks": [{ "check": "public-release", "threshold": `+threshold+` }] }`)
+	}
+	config("0.2")
+	fixtures := filepath.Join(repo, "fixtures", "public-release")
+	wantCode(t, 2, "eval", "public-release", repo) // no fixtures yet
+
+	writeFile(t, filepath.Join(fixtures, "pass", "a.go.patch"), "+++ b/a.go\n+package a\n")
+	// The fake answers english_only=0.1 for b.go.patch, so this fixture fails it.
+	writeFile(t, filepath.Join(fixtures, "fail", "english_only", "b.go.patch"), "+++ b/b.go\n+package b\n")
+	if out := wantCode(t, 0, "eval", "public-release", repo); !strings.HasSuffix(out, "eval: 0 misses in 2 fixtures\n") {
+		t.Errorf("eval output:\n%s", out)
+	}
+
+	// The fake answers english_only=0.3, so a pass fixture misses at a threshold of 0.5.
+	config("0.5")
+	if out := wantCode(t, 1, "eval", "public-release", repo); !strings.Contains(out, "MISS  0.3  english_only  pass/a.go.patch fails it\n") {
+		t.Errorf("eval output:\n%s", out)
+	}
+
+	wantCode(t, 2, "eval", "no-such-check", repo)
+	writeFile(t, filepath.Join(fixtures, "fail", "typo", "c.patch"), "+++ b/c\n")
+	wantCode(t, 2, "eval", "public-release", repo)
+	os.RemoveAll(filepath.Join(fixtures, "fail", "typo"))
+	writeFile(t, filepath.Join(fixtures, "pass", "no-header.patch"), "+x\n")
+	wantCode(t, 2, "eval", "public-release", repo)
+}
+
+func TestInvalidAnswers(t *testing.T) {
+	requests := setup(t)
+	t.Cleanup(func() { jevAnswers = "" })
+	repo := t.TempDir()
+	gitRun(t, repo, "init", "-q")
+	writeFile(t, filepath.Join(repo, "project-context.json"), `{"checks":[{"check":"public-release","threshold":0}]}`)
+	file := writeFile(t, filepath.Join(repo, "x.go"), "package x\n")
+	gitRun(t, repo, "add", "x.go")
+	writeFile(t, filepath.Join(repo, "fixtures/public-release/pass/x.patch"), "+++ b/x\n+hello\n")
+	writeFile(t, filepath.Join(repo, "fixtures/public-release/fail/english_only/x.patch"), "+++ b/x\n+hello\n")
+	_, questions, _, err := loadCheck("public-release")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{`{}`, `null`, `{"type":"choice","choice":"yes"}`, `{"type":"noul"}`, `{"type":"noul","noul":null}`, `{"type":"noul","noul":1.1}`, `{"type":"noul","noul":-0.1}`} {
+		t.Run(bad, func(t *testing.T) {
+			answers := map[string]json.RawMessage{}
+			for id := range questions {
+				answers[id] = json.RawMessage(`{"type":"noul","noul":0.9}`)
+			}
+			answers["english_only"] = json.RawMessage(bad)
+			raw, err := json.Marshal(map[string]any{"answers": answers})
+			if err != nil {
+				t.Fatal(err)
+			}
+			jevAnswers = string(raw)
+			wantCode(t, 2, "ask", "public-release", "--file", file, "--threshold", "0")
+			wantCode(t, 2, "gate", repo, "--no-cache")
+			wantCode(t, 2, "eval", "public-release", repo, "--no-cache")
+		})
+	}
+	for _, raw := range []string{`{"answers":{}}`, `{"answers":{"english_only":{"type":"noul","noul":1}}}`} {
+		jevAnswers = raw
+		wantCode(t, 2, "gate", repo, "--no-cache")
+		wantCode(t, 2, "eval", "public-release", repo, "--no-cache")
+	}
+	jevAnswers = ""
+	wantCode(t, 0, "gate", repo)
+	caches, err := filepath.Glob(filepath.Join(root, "output/cache/*.json"))
+	if err != nil || len(caches) != 1 {
+		t.Fatalf("cache files: %v, %v", caches, err)
+	}
+	for _, raw := range []string{`{"answers":{}}`, `{"answers":{"english_only":{"type":"noul","noul":1}}}`} {
+		writeFile(t, caches[0], raw)
+		before := len(*requests)
+		jevAnswers = raw
+		wantCode(t, 2, "gate", repo)
+		if len(*requests) != before+1 {
+			t.Fatal("invalid cache did not trigger a new API call")
+		}
+	}
+	// Zero is a valid probability, unlike an omitted or null noul value.
+	answers := map[string]json.RawMessage{}
+	for id := range questions {
+		answers[id] = json.RawMessage(`{"type":"noul","noul":0}`)
+	}
+	raw, err := json.Marshal(map[string]any{"answers": answers})
+	if err != nil {
+		t.Fatal(err)
+	}
+	jevAnswers = string(raw)
+	wantCode(t, 0, "gate", repo, "--no-cache")
+}
+
+func TestGateBlocksRemovedAndContextSecrets(t *testing.T) {
+	for _, keep := range []bool{false, true} {
+		t.Run(fmt.Sprint(keep), func(t *testing.T) {
+			requests := setup(t)
+			repo := t.TempDir()
+			gitRun(t, repo, "init", "-q")
+			writeFile(t, filepath.Join(repo, "project-context.json"), `{"checks":[{"check":"public-release","threshold":0.5}]}`)
+			secret := "DB_PASSWORD=" + strings.Repeat("p4", 8) + "\n"
+			file := writeFile(t, filepath.Join(repo, "config.txt"), secret+"old\n")
+			gitRun(t, repo, "add", ".")
+			gitRun(t, repo, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "initial")
+			content := "new\n"
+			if keep {
+				content = secret + content
+			}
+			writeFile(t, file, content)
+			gitRun(t, repo, "add", "config.txt")
+			out := wantCode(t, 1, "gate", repo)
+			if !strings.Contains(out, "SECRET  config.txt.patch line") || strings.Contains(out, strings.TrimSpace(secret)) {
+				t.Fatalf("unexpected report: %s", out)
+			}
+			if len(*requests) != 0 {
+				t.Fatal("patch containing a secret reached the API")
+			}
+		})
+	}
+}
+
+func TestAskRejectsNullState(t *testing.T) {
+	requests := setup(t)
+	state := writeFile(t, filepath.Join(t.TempDir(), "state.json"), "null")
+	file := writeFile(t, filepath.Join(t.TempDir(), "x"), "hello")
+	for _, args := range [][]string{{"ask", "example", state}, {"ask", "example", state, "--file", file, "--dry-run"}} {
+		var stdout, stderr strings.Builder
+		if code := run(args, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "state must be an object") {
+			t.Fatalf("exit=%d stderr=%s", code, stderr.String())
+		}
+	}
+	if len(*requests) != 0 {
+		t.Fatal("invalid state reached the API")
+	}
+}

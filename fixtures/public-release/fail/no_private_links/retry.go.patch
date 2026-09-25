@@ -1,0 +1,11 @@
+diff --git a/retry.go b/retry.go
+new file mode 100644
+index 0000000..7c28a41
+--- /dev/null
++++ b/retry.go
+@@ -0,0 +1,5 @@
++package main
++
++// Retry three times, see https://jira.acme-internal.net/browse/OPS-4411
++// and the thread in https://acme.slack.com/archives/C04ABC123/p1712345678
++const retries = 3

@@ -1,0 +1,22 @@
+{
+  "title": "Example with a default state",
+  "description": "A first check to try: runs on the small script in input/states/example.json, so it needs no --file. Every yes/no answer is the probability that the script is fine.",
+  "questions": {
+    "handles_missing_file": {
+      "type": "noul",
+      "instructions": "Does the script in `files` handle a missing input file on purpose?",
+      "criteria": {
+        "true": "It checks that the file exists or catches the error, and stops with a clear message.",
+        "false": "It opens the file without a check, so a missing file crashes with a raw error."
+      }
+    },
+    "clear_names": {
+      "type": "noul",
+      "instructions": "Do the names in the script in `files` say what they hold or do?",
+      "criteria": {
+        "true": "Each name describes its content or job.",
+        "false": "A name is a single letter or a generic word such as x, data, or tmp outside a short loop."
+      }
+    }
+  }
+}

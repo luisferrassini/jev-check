@@ -1,0 +1,15 @@
+diff --git a/upload.go b/upload.go
+new file mode 100644
+index 0000000..9522d73
+--- /dev/null
++++ b/upload.go
+@@ -0,0 +1,9 @@
++package main
++
++import "os"
++
++// verifica se o arquivo existe antes de enviar para a API
++func existe(caminho string) bool {
++	_, err := os.Stat(caminho)
++	return err == nil // retorna falso quando não encontra
++}

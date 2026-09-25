@@ -1,0 +1,88 @@
+diff --git a/.claude/skills/jev-check/SKILL.md b/.claude/skills/jev-check/SKILL.md
+new file mode 100644
+index 0000000..30bb461
+--- /dev/null
++++ b/.claude/skills/jev-check/SKILL.md
+@@ -0,0 +1,82 @@
++---
++name: jev-check
++description: Run Jev checks (security risk, code quality, and others) to get calibrated probabilities before acting. Use before every commit, or when a decision would be more confident with a quick, cheap second opinion on a file or patch.
++---
++
++# jev-check
++
++`jev-check ask` sends a registered check (a set of yes/no questions) plus a state (files) to Jev and prints one probability per question. Run it from this folder. If `./jev-check` is missing or older than a `.go` file, run `go build -o jev-check .` first.
++
++## Steps
++
++1. List the checks: `./jev-check list`. Each entry shows the name, title, description, and whether it needs `--file`.
++2. Pick every check whose description bears on the decision in front of you.
++3. Run each one: `./jev-check ask <name> --file <path> --threshold 0.7`. Repeat `--file` to send several files.
++4. Read the exit code. `0` means every yes/no answer is at or above the threshold. `1` means at least one line starts with `FAIL`. `2` means a usage or API error; the message on stderr names the cause.
++5. On `1`, fix what each `FAIL` question names, then rerun the same check. Done when it exits `0`.
++
++Each answer line is `<status> <probability> <question-id>`. The probability is the chance the answer is yes. Every question is phrased so yes is the good outcome. The full request and response are saved under `output/`.
++
++## Commit rule
++
++Before every commit, run `./jev-check gate <project-dir>`. Commit only when it prints `gate: PASS`.
++
++The gate reads `<project-dir>/project-context.json`:
++
++```json
++{
++  "purpose": "One or two sentences on what the project is and who runs it.",
++  "rules": ["Short project rules Jev should judge against."],
++  "folders": { "src": "What lives in each folder." },
++  "exclude": [".env", "output/"],
++  "checks": [
++    { "check": "security-risk", "threshold": 0.85, "per_question": { "no_injection": 0.8 } },
++    { "check": "code-quality", "threshold": 0.85, "skip": ["*.md", "*.json"],
++      "pass_when": { "question": "main_problem", "choice": "none", "min": 0.7 } }
++  ]
++}
++```
++
++- `purpose`, `rules`, `folders`, and the file tree go to Jev with every patch. Keep them short: a large state dilutes answers.
++- `exclude` and `skip` are git pathspecs. `exclude` is never listed or sent. `skip` is ignored by that one check.
++- `threshold` is the default for a check. `per_question` overrides it for one question.
++- `pass_when` is optional. When a choice question picks `choice` with at least `min`, the file passes that check even if a yes/no answer is below its threshold. Keep `min` at 0.6 or more (see `main_problem` below).
++- Each check gets one patch per staged file: in a large patch, Jev misses a single bad line.
++
++Read the output:
++
++1. `SECRET <file> line N looks like <kind>`: the patch looks like it holds a secret, so the gate did not send it. Remove the secret, restage, rerun.
++2. `FAIL <probability> <question-id>` under `== <check> <file>`: fix what the question names in that file, restage, rerun.
++3. `pass  main_problem is none at <probability>, ...`: `pass_when` held, so the `FAIL` lines above it do not fail the gate. Nothing to fix.
++4. `info <problem> <probability> main_problem`: the most serious problem Jev sees in that file. Trust it only at 0.6 or more. On 15 test fixtures, every answer at 0.67 or more was right, and every answer at 0.40 or less was wrong or a coin flip. It never fails the gate.
++5. `gate: ERROR`: a usage or API error. The message on stderr names the cause.
++
++## Commands
++
++Each command works alone. `gate` only chains them.
++
++- `./jev-check context DIR` prints the project state Jev sees.
++- `./jev-check secrets PATCH...` scans added lines for secrets locally. It prints where, never the value.
++- `./jev-check judge output/<file>.json THRESHOLD [QUESTION=THRESHOLD]...` judges a saved answer again. Use it to try thresholds without calling the API.
++
++## Adding a check
++
++Create `input/questions/<name>.json`:
++
++```json
++{
++  "title": "Short title",
++  "description": "What it judges and what state it needs.",
++  "questions": {
++    "question_id": {
++      "type": "noul",
++      "instructions": "A yes/no question about `files`, phrased so yes is good.",
++      "criteria": { "true": "When yes.", "false": "When no." }
++    }
++  }
++}
++```
++
++Besides `noul` (yes/no), a question can be `choice` (`criteria` maps each option to a description) or `score` (ordered levels). See https://docs.typesafe.ai/primitives.md. Only `noul` answers are compared with thresholds.
++
++A check with a fixed state also gets `input/states/<name>.json`, which is sent as is. After changing a `.go` file, run `go test ./...` and `go build -o jev-check .`.

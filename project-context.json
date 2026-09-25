@@ -1,0 +1,30 @@
+{
+  "purpose": "A local developer CLI that sends yes/no checks about files to the Jev API. A developer or an agent runs it by hand, so its arguments and files come from the developer, not from untrusted users.",
+  "rules": [
+    "Go standard library and git only.",
+    "The API key is read from the local .env and sent only to the Jev API.",
+    "Nothing in this folder points to files outside it.",
+    "This is a public GitHub repository, written in English. Jev, noul, and TypeSafe are the public names of the API and its yes/no answer type."
+  ],
+  "folders": {
+    ".": "One Go binary, jev-check. ask.go asks one check, context.go builds the project state, secrets.go scans patches locally, judge.go applies thresholds, gate.go runs the checks on staged files, eval.go tests thresholds on fixtures. main_test.go tests them offline with a fake Jev server, in temp folders, and passes paths like ../x to check that they are refused.",
+    "input/questions": "One check per file. example.json is the first check a new user runs.",
+    "input/states": "Optional fixed state per check. example.json holds a short script with two deliberate flaws for the example check to find.",
+    ".claude/skills/jev-check": "Tells an agent how to use the tool.",
+    "fixtures": "Known pass and fail patches that set each check's threshold. Excluded from the gate."
+  },
+  "exclude": [
+    ".env",
+    "output/",
+    "fixtures/"
+  ],
+  "checks": [
+    {
+      "check": "public-release",
+      "threshold": 0.5,
+      "skip": [
+        "LICENSE"
+      ]
+    }
+  ]
+}

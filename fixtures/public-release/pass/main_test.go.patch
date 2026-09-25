@@ -1,0 +1,308 @@
+diff --git a/main_test.go b/main_test.go
+new file mode 100644
+index 0000000..cdf1f54
+--- /dev/null
++++ b/main_test.go
+@@ -0,0 +1,302 @@
++package main
++
++import (
++	"encoding/json"
++	"fmt"
++	"maps"
++	"net/http"
++	"net/http/httptest"
++	"os"
++	"os/exec"
++	"path/filepath"
++	"slices"
++	"strings"
++	"testing"
++)
++
++const fakeAnswers = `{"model":"jev-test","answers":{
++  "a":{"type":"noul","noul":0.9},
++  "b":{"type":"noul","noul":0.3},
++  "c":{"type":"choice","choice":"x","probabilities":{"x":0.8,"y":0.2}}}}`
++
++// jevAnswers is what the fake server answers. A test may swap it and restore it.
++var jevAnswers = fakeAnswers
++
++// setup points root at a temp folder that shares input/, and the API at a fake
++// server that answers jevAnswers. It returns the requests the server got.
++func setup(t *testing.T) *[]request {
++	t.Helper()
++	here, err := os.Getwd()
++	if err != nil {
++		t.Fatal(err)
++	}
++	root = t.TempDir()
++	if err := os.Symlink(filepath.Join(here, "input"), filepath.Join(root, "input")); err != nil {
++		t.Fatal(err)
++	}
++	var got []request
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if r.Header.Get("Authorization") != "Bearer test" {
++			http.Error(w, "bad key", http.StatusUnauthorized)
++			return
++		}
++		var req request
++		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
++			http.Error(w, err.Error(), http.StatusBadRequest)
++			return
++		}
++		got = append(got, req)
++		fmt.Fprint(w, jevAnswers)
++	}))
++	t.Cleanup(server.Close)
++	endpoint = server.URL
++	t.Setenv("TYPESAFE_API_KEY", "test")
++	return &got
++}
++
++// jev runs one command and returns its exit code and stdout.
++func jev(t *testing.T, args ...string) (int, string) {
++	t.Helper()
++	var stdout, stderr strings.Builder
++	code := run(args, &stdout, &stderr)
++	if stderr.Len() > 0 {
++		t.Logf("jev-check %s: stderr: %s", strings.Join(args, " "), stderr.String())
++	}
++	return code, stdout.String()
++}
++
++func writeFile(t *testing.T, path, content string) string {
++	t.Helper()
++	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	return path
++}
++
++func wantCode(t *testing.T, want int, args ...string) string {
++	t.Helper()
++	code, out := jev(t, args...)
++	if code != want {
++		t.Fatalf("jev-check %s: exit %d, want %d\n%s", strings.Join(args, " "), code, want, out)
++	}
++	return out
++}
++
++func TestAsk(t *testing.T) {
++	setup(t)
++	patch := writeFile(t, filepath.Join(t.TempDir(), "change.patch"), "print(\"hello\")\n")
++
++	if out := wantCode(t, 0, "list"); !strings.Contains(out, "security-risk [needs --file]\n") {
++		t.Errorf("list: %s", out)
++	}
++
++	var req request
++	out := wantCode(t, 0, "ask", "--dry-run", "security-risk", "--file", patch)
++	if err := json.Unmarshal([]byte(out), &req); err != nil {
++		t.Fatal(err)
++	}
++	if req.State["files"].(map[string]any)[patch] != "print(\"hello\")\n" || req.Questions["no_hardcoded_secret"] == nil {
++		t.Errorf("dry run: %s", out)
++	}
++	out = wantCode(t, 0, "ask", "--dry-run", "example")
++	if err := json.Unmarshal([]byte(out), &req); err != nil || len(req.State["files"].(map[string]any)) == 0 {
++		t.Errorf("default state not sent: %v", err)
++	}
++
++	wantCode(t, 2, "ask", "security-risk")
++	wantCode(t, 2, "ask", "../x", "--file", patch)
++	wantCode(t, 2, "ask", "security-risk", "--file", patch, "--threshold", "2")
++	wantCode(t, 2, "ask", "no-such-check", "--file", patch)
++
++	out = wantCode(t, 1, "ask", "security-risk", "--file", patch, "--threshold", "0.5")
++	for _, line := range []string{"FAIL  0.3  b\n", "ok    0.9  a\n", "info  x 0.8  c\n", "saved: output/"} {
++		if !strings.Contains(out, line) {
++			t.Errorf("missing %q in:\n%s", line, out)
++		}
++	}
++	wantCode(t, 0, "ask", "security-risk", "--file", patch, "--threshold", "0.2")
++
++	t.Setenv("TYPESAFE_API_KEY", "wrong")
++	wantCode(t, 2, "ask", "security-risk", "--file", patch)
++}
++
++func TestSecrets(t *testing.T) {
++	dir := t.TempDir()
++	// Fake keys are built at run time, so this file holds none.
++	r := strings.Repeat
++	leaks := [][2]string{
++		{"aws-access-key", "aws = AKIA" + r("Q", 16)},
++		{"env-secret", "export DB_PASSWORD=" + r("p4", 8)},
++		{"private-key", "-----BEGIN OPENSSH PRIV" + "ATE KEY-----"},
++		{"github-token", "token: ghp_" + r("a1", 18)},
++		{"gitlab-token", "glpat-" + r("x1", 10)},
++		{"slack-token", "xoxb-" + r("12", 6)},
++		{"stripe-key", "stripe = sk_live_" + r("a1", 12)},
++		{"google-api-key", "AIza" + r("B", 35)},
++		{"sk-api-key", "sk-ant-api03-" + r("c2", 12)},
++		{"jwt", "eyJ" + r("h", 12) + ".eyJ" + r("p", 12) + "." + r("s", 12)},
++		{"url-credentials", "postgres://app:s3cr3t" + "@db:5432"},
++		{"bearer-literal", "Authorization: Bearer " + r("t9", 12)},
++		{"quoted-secret", `api_key = "` + r("k7", 8) + `"`},
++	}
++	patch := "+++ b/x\n"
++	for _, leak := range leaks {
++		patch += "+" + leak[1] + "\n"
++	}
++	code, out := jev(t, "secrets", writeFile(t, filepath.Join(dir, "leak.patch"), patch))
++	if code != 1 {
++		t.Errorf("exit %d on keys, want 1", code)
++	}
++	for _, leak := range leaks {
++		if !strings.Contains(out, "looks like "+leak[0]+"\n") {
++			t.Errorf("%s not reported", leak[0])
++		}
++		if strings.Contains(out, leak[1]) {
++			t.Errorf("printed the secret for %s", leak[0])
++		}
++	}
++
++	clean := []string{`TOKEN=$(cat file)`, `api_key = os.environ["KEY"]`, `KEY=`, `API_KEY=your-api-key-here`,
++		`password = "changeme-please"`, `postgres://user:password@localhost`, `Authorization: Bearer $TOKEN`,
++		`SKILL_md = "a3b9c1d7e5f2a3b9c1d7e5f2a3b9c1d7"`}
++	wantCode(t, 0, "secrets", writeFile(t, filepath.Join(dir, "clean.patch"), "+"+strings.Join(clean, "\n+")+"\n"))
++
++	sources, _ := filepath.Glob("*.go")
++	for _, source := range sources {
++		content, err := os.ReadFile(source)
++		if err != nil {
++			t.Fatal(err)
++		}
++		self := "+" + strings.ReplaceAll(string(content), "\n", "\n+")
++		if reports := scanSecrets(source, self); reports != nil {
++			t.Errorf("false positive on %s: %v", source, reports)
++		}
++	}
++	wantCode(t, 2, "secrets", filepath.Join(dir, "missing.patch"))
++}
++
++func TestJudge(t *testing.T) {
++	out := writeFile(t, filepath.Join(t.TempDir(), "out.json"), `{"response":`+fakeAnswers+`}`)
++	wantCode(t, 0, "judge", out, "0.5", "b=0.2")
++	got := wantCode(t, 1, "judge", out, "0.5")
++	if !strings.Contains(got, "FAIL  0.3  b\n") || !strings.Contains(got, "info  x 0.8  c\n") {
++		t.Errorf("judge output:\n%s", got)
++	}
++	wantCode(t, 2, "judge", out, "0.5", "zzz=0.1")
++	wantCode(t, 2, "judge", out, "0.5", "b=x")
++	wantCode(t, 2, "judge", out, "1.5")
++}
++
++func gitRun(t *testing.T, dir string, args ...string) {
++	t.Helper()
++	if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
++		t.Fatalf("git %v: %v\n%s", args, err, out)
++	}
++}
++
++func TestGate(t *testing.T) {
++	requests := setup(t)
++	repo := t.TempDir()
++	wantCode(t, 2, "gate", repo) // not a git repository, so the gate must not pass
++
++	gitRun(t, repo, "init", "-q")
++	writeFile(t, filepath.Join(repo, "app.py"), "print(\"hello\")\n")
++	writeFile(t, filepath.Join(repo, "README.md"), "# doc\n")
++	writeFile(t, filepath.Join(repo, "output", "log"), "x\n")
++	writeFile(t, filepath.Join(repo, "project-context.json"), `{ "purpose": "Test project.", "exclude": ["output/"],
++  "checks": [{ "check": "security-risk", "threshold": 0.5, "per_question": { "no_injection": 0.2 }, "skip": ["*.md"] }] }`)
++
++	var state struct {
++		Project map[string]any `json:"project"`
++		Tree    []string       `json:"tree"`
++	}
++	if err := json.Unmarshal([]byte(wantCode(t, 0, "context", repo)), &state); err != nil {
++		t.Fatal(err)
++	}
++	slices.Sort(state.Tree)
++	if fmt.Sprint(state.Project) != "map[purpose:Test project.]" || !slices.Equal(state.Tree, []string{"README.md", "app.py", "project-context.json"}) {
++		t.Errorf("context: %+v", state)
++	}
++
++	if out := wantCode(t, 0, "gate", repo); out != "nothing staged\n" {
++		t.Errorf("empty gate: %s", out)
++	}
++
++	// The fake answers b=0.3, so the gate passes only with a threshold at or below that.
++	gitRun(t, repo, "add", "app.py", "README.md")
++	out := wantCode(t, 1, "gate", repo)
++	if !strings.Contains(out, "== security-risk app.py\n") || strings.Contains(out, "README") || !strings.HasSuffix(out, "gate: FAIL\n") {
++		t.Errorf("gate output:\n%s", out)
++	}
++	if len(*requests) != 1 {
++		t.Fatalf("sent %d requests, want 1", len(*requests))
++	}
++	sent := (*requests)[0].State
++	if files := sent["files"].(map[string]any); len(files) != 1 || files["app.py.patch"] == nil {
++		t.Errorf("gate sent files %v", slices.Collect(maps.Keys(files)))
++	}
++	if sent["project"].(map[string]any)["purpose"] != "Test project." {
++		t.Errorf("gate sent project %v", sent["project"])
++	}
++
++	// An unchanged patch comes from the cache, even when the tree changes. --no-cache sends it again.
++	writeFile(t, filepath.Join(repo, "new.txt"), "x\n")
++	if out := wantCode(t, 1, "gate", repo); !strings.Contains(out, "== security-risk app.py (cached)\n") || len(*requests) != 1 {
++		t.Errorf("cache missed, %d requests:\n%s", len(*requests), out)
++	}
++	wantCode(t, 1, "gate", repo, "--no-cache")
++	if len(*requests) != 2 {
++		t.Errorf("--no-cache sent %d requests, want 2", len(*requests))
++	}
++	wantCode(t, 2, "gate", repo, "--bogus")
++
++	writeFile(t, filepath.Join(repo, "project-context.json"), `{ "checks": [{ "check": "security-risk", "threshold": 0.2 }] }`)
++	gitRun(t, repo, "add", "project-context.json")
++	if out := wantCode(t, 0, "gate", repo); !strings.HasSuffix(out, "gate: PASS\n") {
++		t.Errorf("gate output:\n%s", out)
++	}
++
++	// The fake picks main_problem x at 0.8, so pass_when overrides b's FAIL only at a min of 0.8 or less.
++	jevAnswers = strings.Replace(fakeAnswers, `"c":`, `"main_problem":`, 1)
++	defer func() { jevAnswers = fakeAnswers }()
++	passWhen := func(min string) string {
++		return `{ "checks": [{ "check": "code-quality", "threshold": 0.5, "pass_when": { "question": "main_problem", "choice": "none", "min": ` + min + ` } }] }`
++	}
++	writeFile(t, filepath.Join(repo, "project-context.json"), strings.Replace(passWhen("0.8"), `"none"`, `"x"`, 1))
++	wantCode(t, 2, "gate", repo) // x is not an option of main_problem
++	jevAnswers = strings.Replace(jevAnswers, `"x"`, `"none"`, -1)
++	writeFile(t, filepath.Join(repo, "project-context.json"), passWhen("0.8"))
++	if out := wantCode(t, 0, "gate", repo); !strings.Contains(out, "pass  main_problem is none at 0.8") {
++		t.Errorf("pass_when output:\n%s", out)
++	}
++	writeFile(t, filepath.Join(repo, "project-context.json"), passWhen("0.9"))
++	wantCode(t, 1, "gate", repo)
++	jevAnswers = fakeAnswers
++
++	for _, bad := range []string{
++		`{ "checks": [{ "check": "security-risk", "threshold": 0.2, "per_question": { "typo": 0.5 } }] }`,
++		`{ "checks": [{ "check": "security-risk", "threshold": 0.2, "pass_when": { "question": "no_injection", "choice": "none", "min": 0.5 } }] }`,
++		`{ "checks": [{ "check": "security-risk" }] }`,
++		`{ "checks": [] }`,
++	} {
++		writeFile(t, filepath.Join(repo, "project-context.json"), bad)
++		wantCode(t, 2, "gate", repo)
++	}
++	writeFile(t, filepath.Join(repo, "project-context.json"), `{ "checks": [{ "check": "security-risk", "threshold": 0.2 }] }`)
++
++	*requests = nil
++	writeFile(t, filepath.Join(repo, "app.py"), "aws = \"AKIA"+strings.Repeat("Q", 16)+"\"\n")
++	gitRun(t, repo, "add", "app.py")
++	out = wantCode(t, 1, "gate", repo)
++	if !strings.Contains(out, "SECRET  app.py.patch line") {
++		t.Errorf("gate did not report the key:\n%s", out)
++	}
++	for _, req := range *requests {
++		if req.State["files"].(map[string]any)["app.py.patch"] != nil {
++			t.Error("gate sent a patch with a key")
++		}
++	}
++}

@@ -1,0 +1,10 @@
+diff --git a/README.md b/README.md
+new file mode 100644
+index 0000000..8cdf59a
+--- /dev/null
++++ b/README.md
+@@ -0,0 +1,4 @@
++## Prompts
++
++Copy the prompts from `../prompt-lab/prompts.md` before the first run.
++The shared config lives in `../../shared-configs/jev.json`.

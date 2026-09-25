@@ -1,0 +1,12 @@
+diff --git a/.gitlab-ci.yml b/.gitlab-ci.yml
+new file mode 100644
+index 0000000..ffd64d6
+--- /dev/null
++++ b/.gitlab-ci.yml
+@@ -0,0 +1,6 @@
++include:
++  - project: platform/ci-templates
++    file: go.yml
++variables:
++  SECRETS_REPO: https://git.corp.acme.local/platform/secrets-sync.git
++  METRICS_URL: http://grafana.int.acme:3000/d/jev

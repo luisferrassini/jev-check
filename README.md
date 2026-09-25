@@ -1,0 +1,130 @@
+# jev-check
+
+A small CLI that gates staged files on yes/no questions answered by Jev, the TypeSafe model (`https://api.typesafe.ai/v1/systemone`). It is built for coding agents: the agent runs `./jev-check gate .` like a test suite, and when it goes red, the agent fixes what each FAIL line names and runs it again.
+
+Every check is backed by fixtures: known pass and fail patches that prove its threshold separates clean files from real problems.
+
+## Setup
+
+Needs Go 1.26 and `git`. No other dependencies.
+
+```bash
+cp .env.example .env        # then set TYPESAFE_API_KEY
+go build -o jev-check .     # rebuild after every change
+./jev-check ask example     # first run: prints two low probabilities, one per flaw in a bundled script
+```
+
+Get an API key at https://console.typesafe.ai/keys. `TYPESAFE_API_KEY` in the environment wins over `.env`.
+
+The binary reads `input/`, `output/`, and `.env` from its own folder, so build it here.
+
+## Use it from an agent
+
+Copy `.claude/skills/jev-check/SKILL.md` into your agent's skills. It tells the agent to stage its work, run the gate, and treat red like a failing test until the gate is green.
+
+## Gate
+
+```bash
+git add -A
+./jev-check gate .              # one patch per staged file, to every check in project-context.json
+./jev-check gate . --no-cache   # same, but call the API for every file
+```
+
+```
+== public-release notes.md
+ok    0.97  no_personal_info
+FAIL  0.12  english_only
+...
+gate: FAIL
+```
+
+Each answer is the probability that the file is fine on that axis. A file fails when any answer is below the check's threshold. Before anything is sent, a local scan checks added, removed, and context lines and drops any patch that looks like it holds a secret and prints `SECRET <file> line N looks like <kind>`. Missing or invalid answers are errors, including answers loaded from cache. Exit codes: `0` pass, `1` fail, `2` usage or API error.
+
+The gate reads `project-context.json` in the project folder:
+
+```json
+{
+  "purpose": "One or two sentences on what the project is and who runs it.",
+  "rules": ["Short project rules Jev should judge against."],
+  "folders": { "src": "What lives in each folder." },
+  "exclude": [".env", "output/", "fixtures/"],
+  "checks": [{ "check": "public-release", "threshold": 0.5, "skip": ["LICENSE"] }]
+}
+```
+
+- `purpose`, `rules`, `folders`, and the file tree go to Jev with every patch. Keep them short: a large state dilutes answers.
+- `exclude` and `skip` are git pathspecs. `exclude` is never listed or sent. `skip` is ignored by that one check.
+- `per_question` sets a threshold for one question, overriding the check's default.
+
+The gate caches answers in `output/cache/`. The cache key is the model, the questions, the project fields, and the patch. The tree and the thresholds are not in the key, so adding a file or changing a threshold does not resend the other files.
+
+## Checks
+
+`public-release`: can this file go into a public GitHub repository as it is? It asks about personal information, paths outside the repository, private links, non-English text, copied third-party content, and files that belong to another project. This repository gates itself on it.
+
+`eval` measures it against `fixtures/public-release/`:
+
+```
+$ ./jev-check eval public-release
+lowest-pass  highest-fail  threshold  question
+0.86         0.24          0.5        belongs_in_project
+0.93         0.12          0.5        english_only
+0.88         0.09          0.5        no_outside_paths
+0.91         0.02          0.5        no_personal_info
+0.9          0.02          0.5        no_private_links
+0.92         0.26          0.5        no_third_party_content
+eval: 0 misses in 21 fixtures
+```
+
+Every clean fixture scores 0.86 or more, and every problem scores 0.26 or less, so a threshold of 0.5 separates them with a wide margin on both sides. A question that could not separate its fixtures was removed.
+
+`example` is a first check to try. It runs on a bundled script, so it needs no `--file`.
+
+## Fixtures and eval
+
+```
+fixtures/<check>/pass/<file>.patch              must pass every question
+fixtures/<check>/fail/<question>/<file>.patch   must fail that question
+```
+
+`./jev-check eval <check>` sends each fixture the way the gate sends a staged file and prints every `MISS`. Make a fixture by staging the file at its real path and running `git diff --cached --relative -- <file>`.
+
+## Contributing a better question
+
+Found a file the gate gets wrong, or a better way to ask? Open a pull request with:
+
+1. The fixture that shows the problem: a clean file that fails, or a problem that passes.
+2. The new or reworded question in `input/questions/<check>.json`.
+3. The `./jev-check eval <check>` output, with `0 misses`.
+
+New checks are welcome on the same terms: a question file, fixtures on both sides, and the eval output.
+
+## Other commands
+
+```bash
+./jev-check list                                   # checks, with titles and descriptions
+./jev-check ask <check> --file PATH --threshold N  # ask one check about any files
+./jev-check ask draft.json --file PATH --dry-run   # print the request for a draft check
+./jev-check context .                              # the project state Jev sees
+./jev-check secrets PATCH...                       # the local secret scan alone
+./jev-check judge output/<file>.json 0.5           # judge a saved answer again, without the API
+./jev-check <command> --help
+```
+
+`ask` saves each request and response to `output/<timestamp>-<check>-<random>.json`.
+
+## Layout
+
+- `ask.go` holds `list` and `ask`.
+- `context.go` builds the project state from `project-context.json` and the file tree.
+- `secrets.go` scans patches for secrets locally, before anything is sent.
+- `judge.go` applies thresholds to answers.
+- `gate.go` runs the checks on one patch per staged file, with a cache.
+- `eval.go` tests a check's thresholds on its fixtures.
+- `main_test.go` tests every command offline with a fake Jev server. Run `go test ./...`.
+- `input/questions/<name>.json` holds one check. `input/states/<name>.json` is an optional default state for it.
+- `fixtures/<check>/` holds the patches that prove a check's threshold.
+
+## License
+
+MIT. See `LICENSE`.

@@ -1,0 +1,103 @@
+// jev-check asks Jev calibrated yes/no checks about files and gates commits on them.
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+// root holds input/, output/, and .env. It is the folder of the binary.
+var root string
+
+const usage = `Usage: jev-check <command> [args]
+
+Commands:
+  list                      list the checks in input/questions/
+  ask <check> [options]     ask one check (see jev-check ask --help)
+  context [DIR]             print the project state Jev sees for DIR
+  secrets PATCH...          scan patches for secrets, including removed lines
+  judge OUTPUT THRESHOLD [QUESTION=THRESHOLD]...
+                            judge a saved answer again, without the API
+  gate [DIR]                run DIR's checks on its staged files
+  eval <check> [DIR]        test a check's thresholds on DIR/fixtures/<check>/
+
+Exit codes: 0 ok, 1 a check failed, 2 usage or API error.
+`
+
+type command func(args []string, stdout, stderr io.Writer) (int, error)
+
+func main() {
+	exe, err := os.Executable()
+	if err == nil {
+		exe, err = filepath.EvalSymlinks(exe)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "jev-check:", err)
+		os.Exit(2)
+	}
+	root = filepath.Dir(exe)
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+func run(args []string, stdout, stderr io.Writer) int {
+	commands := map[string]command{
+		"list": listCmd, "ask": askCmd, "context": contextCmd,
+		"secrets": secretsCmd, "judge": judgeCmd, "gate": gateCmd, "eval": evalCmd,
+	}
+	if len(args) == 0 {
+		fmt.Fprint(stderr, usage)
+		return 2
+	}
+	if isHelp(args[0]) || args[0] == "help" {
+		fmt.Fprint(stdout, usage)
+		return 0
+	}
+	cmd, ok := commands[args[0]]
+	if !ok {
+		fmt.Fprintf(stderr, "jev-check: unknown command %q\n\n%s", args[0], usage)
+		return 2
+	}
+	code, err := cmd(args[1:], stdout, stderr)
+	if err != nil {
+		fmt.Fprintf(stderr, "jev-check %s: %v\n", args[0], err)
+		return 2
+	}
+	return code
+}
+
+func isHelp(arg string) bool { return arg == "-h" || arg == "--help" }
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func readJSON(path string, v any) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(data, v); err != nil {
+		return fmt.Errorf("invalid JSON in %s: %w", path, err)
+	}
+	return nil
+}
+
+func writeJSON(w io.Writer, v any) error {
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	return enc.Encode(v)
+}
+
+// splitNUL splits git's -z output into paths.
+func splitNUL(out string) []string {
+	if out == "" {
+		return []string{}
+	}
+	return strings.Split(strings.TrimSuffix(out, "\x00"), "\x00")
+}

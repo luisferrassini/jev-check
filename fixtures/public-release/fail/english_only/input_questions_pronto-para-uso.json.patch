@@ -1,0 +1,28 @@
+diff --git a/input/questions/pronto-para-uso.json b/input/questions/pronto-para-uso.json
+new file mode 100644
+index 0000000..b20ec2d
+--- /dev/null
++++ b/input/questions/pronto-para-uso.json
+@@ -0,0 +1,22 @@
++{
++  "title": "Ready to use",
++  "description": "Do the files give enough setup steps and at least one runnable example for someone to start using the project? Pass a README with --file. Questions are in Portuguese.",
++  "questions": {
++    "instrucoes_suficientes": {
++      "type": "noul",
++      "instructions": "Os arquivos em `files` contêm instruções suficientes para uma pessoa começar a usar o projeto sem pedir informações adicionais?",
++      "criteria": {
++        "true": "Há passos concretos de instalação ou execução, e os pré-requisitos necessários estão claros.",
++        "false": "Faltam passos de execução ou pré-requisitos necessários para começar."
++      }
++    },
++    "exemplo_executavel": {
++      "type": "noul",
++      "instructions": "Os arquivos em `files` contêm pelo menos um exemplo concreto de comando ou código que uma pessoa pode executar?",
++      "criteria": {
++        "true": "Existe um comando ou trecho de código específico, com informações suficientes para tentar executá-lo.",
++        "false": "Há apenas explicações abstratas ou referências sem um exemplo executável."
++      }
++    }
++  }
++}

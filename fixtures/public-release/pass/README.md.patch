@@ -1,0 +1,80 @@
+diff --git a/README.md b/README.md
+new file mode 100644
+index 0000000..25e2f02
+--- /dev/null
++++ b/README.md
+@@ -0,0 +1,74 @@
++# jev-check
++
++A small CLI, `jev-check`, around the Jev API (`https://api.typesafe.ai/v1/systemone`). It works like CI for agents. It keeps a registry of checks, so you or an agent can list them, pick one, and get calibrated probabilities back fast and cheap.
++
++`jev-check gate` gates a commit on those checks, with thresholds and project context from the project's `project-context.json`.
++
++An agent uses `./jev-check` through the skill in `.claude/skills/jev-check/SKILL.md`.
++
++## Setup
++
++Needs Go 1.26 and `git`. No other dependencies.
++
++```bash
++cp .env.example .env        # then set TYPESAFE_API_KEY
++go build -o jev-check .     # rebuild after every change
++./jev-check ask example     # first run: prints two low probabilities, one per flaw in a bundled script
++```
++
++Get an API key at https://console.typesafe.ai/keys. `TYPESAFE_API_KEY` in the environment wins over `.env`.
++
++The binary reads `input/`, `output/`, and `.env` from its own folder, so build it here.
++
++## Usage
++
++```bash
++./jev-check list                                              # names, titles, descriptions
++./jev-check ask example                                       # uses input/questions/ and input/states/ example.json
++./jev-check ask input/questions/x.json input/states/x.json    # explicit paths
++./jev-check ask security-risk --file change.patch --threshold 0.7
++./jev-check gate .                                            # gate the staged files of this project
++./jev-check gate . --no-cache                                 # same, but call the API for every file
++./jev-check --help
++```
++
++- `--file PATH` adds a file to the state as `files[PATH]`. Repeat it for more files.
++- `--threshold N` exits `1` when any yes/no answer is below `N`.
++- `--dry-run` prints the request without calling the API.
++- Exit codes: `0` ok, `1` below threshold, `2` usage or API error.
++
++Each run saves the request and response to `output/<timestamp>-<check>-<random>.json`.
++
++`gate` caches answers in `output/cache/<sha256>.json`. The key is the model, the check's questions, the project's `purpose`, `rules`, and `folders`, and the file's patch. The file tree is not in the key, so adding a file does not resend the others. Thresholds are not in the key either, so you can change them and rerun without API calls. Delete `output/cache/` or pass `--no-cache` to ask again.
++
++## Checks
++
++- `security-risk` and `code-quality` judge one patch. The gate runs them on every staged file.
++- `public-release` asks whether one file is safe to publish: no personal data, outside paths, private links, non-English text, copied content, or leftovers. This project gates on it at 0.9.
++- `repo-ready` judges the whole repository before a public release. Run it with the project state:
++
++  ```bash
++  ./jev-check context . > output/state.json
++  ./jev-check ask repo-ready output/state.json --file README.md --file .gitignore --file LICENSE --threshold 0.9
++  ```
++
++- `ready-to-use` and `file-purpose` judge any files you pass.
++- `example` runs on a bundled script, so it needs no `--file`.
++
++## Layout
++
++- `ask.go` holds `list` and `ask`: ask one check.
++- `context.go` holds `context`: `purpose`, `rules`, and `folders` from `project-context.json`, plus the file tree.
++- `secrets.go` holds `secrets`: scan patches for secrets locally, before anything is sent.
++- `judge.go` holds `judge`: apply a threshold and per-question thresholds to a saved answer.
++- `gate.go` holds `gate`: run the checks from `project-context.json` on one patch per staged file, with a cache.
++- `main_test.go` tests every command offline with a fake Jev server. Run `go test ./...`.
++- `project-context.json` is this project's own gate config.
++- `input/questions/<name>.json` holds one check: `title`, `description`, `questions`.
++- `input/states/<name>.json` is an optional default state for that check.
++
++Everything this tool needs lives inside this folder.
++
++## License
++
++MIT. See `LICENSE`.
