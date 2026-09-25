@@ -2,7 +2,7 @@
   "purpose": "A local developer CLI that sends yes/no checks about files to the Jev API. A developer or an agent runs it by hand, so its arguments and files come from the developer, not from untrusted users.",
   "rules": [
     "Go standard library and git only.",
-    "The API key is read from the local .env and sent only to the Jev API.",
+    "The API key is read from TYPESAFE_API_KEY in the environment, falling back to the local .env, and sent only to the Jev API.",
     "Nothing in this folder points to files outside it.",
     "This is a public GitHub repository, written in English. Jev, noul, and TypeSafe are the public names of the API and its yes/no answer type."
   ],
