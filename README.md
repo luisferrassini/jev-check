@@ -138,6 +138,13 @@ In this run with `jev-latest` on 2026-09-26, every clean fixture scored 0.83 or 
 
 `coding-style` is opt-in. It judges added or changed code against two rules in a project document: `clear_names` and `actionable_errors`. See [Coding style](#coding-style).
 
+`maintainability` is opt-in and covers Go source only. It makes two narrow judgments about new code in one patch:
+
+- `no_redundant_forwarding`: no new local closure that only forwards one call, is called once, and adds nothing. Top-level functions, exported or documented operations, adapters passed as callbacks, helpers called more than once, and helpers that change arguments or manage a resource are accepted.
+- `no_mixed_output_channels`: no new progress or debug prose on the same stream as machine-readable data, where the patch shows that the stream holds only data. Diagnostics on stderr, output meant for people, separate modes, help text, and status inside the data schema are accepted.
+
+It judges only what added or changed lines show. Removed code, untouched context, non-Go files, documentation, and visible generated files pass. A pass does not mean the project is maintainable. To enable it, add `{ "check": "maintainability", "threshold": 0.49 }` to `checks`. The threshold and the scores behind it are in [`fixtures/maintainability/CALIBRATION.md`](fixtures/maintainability/CALIBRATION.md). To evaluate it, use the disposable project from [Evaluating an opt-in check](#evaluating-an-opt-in-check) with `fixtures/maintainability`, no `CODING_STYLE.md`, and `{"check":"maintainability","threshold":0.49}`.
+
 `example` is a first check to try. It runs on a bundled script, so it needs no `--file`.
 
 ## Coding style

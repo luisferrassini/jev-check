@@ -19,6 +19,9 @@ const fakeAnswers = `{"model":"jev-test","answers":{
   "b":{"type":"noul","noul":0.3},
   "c":{"type":"choice","choice":"x","probabilities":{"x":0.8,"y":0.2}}}}`
 
+// sourceDir is the package folder, saved before any test moves into a temp project.
+var sourceDir, _ = os.Getwd()
+
 // jevAnswers is what the fake server answers. A test may swap it and restore it.
 var jevAnswers string
 
