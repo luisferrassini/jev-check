@@ -1,31 +1,60 @@
 ---
 name: jev-check
-description: Red/green gate for staged files, judged by Jev. Run it before you call a task done or commit, and when you add or change a jev-check question.
+description: Gate staged task changes on a project's Jev checks, or change those checks. Use in a project that has a project-context.json. It is a policy gate, not a substitute for the project's own tests.
 ---
 
 # jev-check
 
-`./jev-check gate .` works like a test suite for the staged files. It asks Jev yes/no questions about each staged patch and goes green (exit 0) or red (exit 1). Run it from this folder. If `./jev-check` is missing or older than a `.go` file, run `go build -o jev-check .` first.
+`jev-check gate <project>` asks Jev yes/no questions about each staged file in `<project>` and prints `gate: PASS` (exit 0) or `gate: FAIL` (exit 1). Treat it like a test suite with a small retry budget. Setup and install: https://github.com/luisferrassini/jev-check#readme
 
-## The loop
+## 1. Choose the executable and the project
 
-Treat red like a failing test in TDD:
+- The executable is the path the user gave you, quoted. Otherwise it is `jev-check` on `PATH`. If `command -v jev-check` finds nothing, report that it is missing, link the setup guide above, and stop this skill.
+- Run `jev-check --help` first when you are not sure which binary you have.
+- Build it with `go build -o jev-check .` only when the task changes jev-check's own Go source, in its own checkout.
+- `<project>` is the folder that holds `project-context.json`. Pass it explicitly. The tool does not search parent folders. No `project-context.json` is a setup problem: report it and link the setup guide. Leave rules and thresholds to the user.
 
-1. Stage the work: `git add -A`.
-2. Run `./jev-check gate .`.
-3. Green, `gate: PASS`: the task can be called done.
-4. Red, `gate: FAIL`: each `FAIL <probability> <question>` under `== <check> <file>` names one problem in that file. `SECRET <file> line N` means the patch looked like it held a secret and was never sent. Fix the file and go back to step 1.
-5. Exit 2 is a usage or API error, not red. stderr names the cause. Report it to the user.
+The user's approval to run the gate covers reruns inside the retry budget below.
 
-Done means green. The questions and thresholds are the spec, so get to green by changing the files. When you believe a FAIL is wrong, stop and show the user the file, the question, and the probability.
+## 2. Stage only the task's changes
 
-## Changing a check
+The gate judges everything staged, including what the user staged before you started. Keep the user's index intact.
 
-A check is `input/questions/<name>.json`. Its threshold is in `project-context.json`, and `fixtures/<name>/` proves the threshold.
+1. Run `git status --porcelain` and `git diff --cached --stat`. Write down what was already staged and which paths the task changed. Note untracked files, deletions, renames, and files that are partly staged.
+2. Stage each task file by its literal path: `git --literal-pathspecs add -- 'path/one' 'path two'`. This handles spaces, leading hyphens, and `*`, `?`, `[`, `:` in names. Use a whole-file add only when the whole unstaged change in that file is yours.
+3. When a task file also holds someone else's edits, stage only your hunks: write them to a patch and run `git apply --cached <patch>`. If you cannot tell whose hunk is whose, leave that file unstaged, report the overlap, and go on with other work. Keep the index as the user left it: resetting, stashing, or restoring it is out of bounds.
+4. Run `git diff --cached --stat` again. Done when the staged set is the user's earlier staged work plus exactly your task's hunks.
 
-1. Add the case that prompted the change. A problem the check missed goes in `fixtures/<name>/fail/<question>/<file>.patch`. A clean file it failed goes in `fixtures/<name>/pass/<file>.patch`. Make each patch by staging the file at its real path and running `git diff --cached --relative -- <file>`, so it matches what the gate sends.
-2. Edit the question. Phrase it so yes is the good outcome, and give concrete examples in `criteria`.
-3. Run `./jev-check eval <name>`. Done when it prints `eval: 0 misses` with every question's `highest-fail` below its `threshold` and its `lowest-pass` above it.
-4. When no threshold separates a question's fixtures, remove the question.
+## 3. Run the gate and act on the result
 
-Try a draft question without the gate: `./jev-check ask draft.json --file <patch>`. After changing a `.go` file, run `go test ./...` and rebuild.
+Run `jev-check gate <project>` and keep stdout, stderr, and the exit code. Say in your report that the result covers every staged file, not only yours. Leave unrelated files alone even when they fail.
+
+| Result | Action |
+| --- | --- |
+| Exit 0, `gate: PASS` | Report it next to the project's own tests and checks. A pass does not prove the code works, and excluded or skipped files were not judged. |
+| Exit 0, `nothing staged` | A no-op. If your changes need checking, fix the staging and rerun. Never report a no-op as a pass. |
+| Exit 1, `FAIL` | Each `FAIL <probability> <question>` under `== <check> <file>` names one problem. Report the check, file, question, probability, and threshold from `project-context.json`. Fix a real problem in your own change, then stage the fix again. |
+| Exit 1, `SECRET` | `SECRET <location> line N looks like <kind>`: something in the request looks like a secret, and nothing was sent. It can be in a patch, a file name, the project fields, the tree, or a check's questions. Remove it from content you own. Report the location and kind, never the value. |
+| Exit 2 | A usage, setup, or API error, not a judgment. stderr names the cause. Fix a known local setup problem if the task allows it, else report the blocker. |
+
+### Retry budget
+
+For one task scope the gate runs at most **three** times: the first run and two reruns. Each rerun needs a concrete change to code, staging, or setup since the last run. An unchanged file gets the same cached answer, and `--no-cache` only buys another sample of the same judgment, so rerun with a change or not at all. Retry an exit 2 only after you have fixed its cause. When the budget runs out, report the remaining findings and what you finished. More runs need a new instruction or a changed task.
+
+### A FAIL that looks wrong
+
+Stop the loop. Show the file, question, probability, threshold, and why the file does not have that problem. Call it a suspected false positive, not a fact. Keep the policy as it is: thresholds, questions, `exclude`, `skip`, models, and fixtures change only in a check-maintenance task the user asked for.
+
+A pass does not authorize a commit, a reset, or work outside the task.
+
+## Changing a check (only when asked)
+
+A check is `input/questions/<name>.json` in the project, or a bundled check (`jev-check list` shows which). Its threshold is in `project-context.json`, and `fixtures/<name>/` proves the threshold.
+
+1. Add the case that prompted the change: a missed problem as `fixtures/<name>/fail/<question>/<file>.patch`, a wrongly failed clean file as `fixtures/<name>/pass/<file>.patch`. Make each patch by staging the file at its real path, in a disposable repository if the file is synthetic, and running `git diff --cached --relative -- <file>`.
+2. Edit the question so yes is the good outcome, with concrete examples in `criteria`.
+3. Run `jev-check eval <name> <project>`. Done when it exits 0 with `eval: 0 misses`, there is at least one pass fixture, every yes/no question has a fail fixture, and for each question `highest-fail < threshold <= lowest-pass`. A pass fixture scoring exactly the threshold passes.
+4. If no threshold separates a question's fixtures, report the scores and a proposed redesign. The user decides whether to reword, drop, or re-threshold it.
+5. Run the project's tests and the gate (sections 2 and 3). Report any open eval or gate problem.
+
+Try a draft question without the gate: `jev-check ask draft.json --file <patch> --dry-run`, then without `--dry-run` for a live answer.

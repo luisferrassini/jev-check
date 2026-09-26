@@ -61,12 +61,30 @@ Older versions read `input/`, `.env`, and `output/` from the binary's folder. To
 
 ## Use it from an agent
 
-Copy `.claude/skills/jev-check/SKILL.md` into your agent's skills. It tells the agent to stage its work, run the gate, and treat red like a failing test until the gate is green.
+[`.claude/skills/jev-check/SKILL.md`](.claude/skills/jev-check/SKILL.md) is the one source of the agent skill. It tells an agent to stage only its own changes, run `jev-check gate <project>`, act on each result, and stop after three runs. Install the `jev-check` binary first (see [Setup](#setup)): the skill uses the one on `PATH`, or a path you give the agent.
+
+Copy the skill into the project where the agent works. Pick the folder your agent reads project skills from:
+
+| Agent | Destination in your project | Check |
+| --- | --- | --- |
+| Claude Code | `.claude/skills/jev-check/SKILL.md` | The agent lists a `jev-check` skill. |
+| Codex | `.agents/skills/jev-check/SKILL.md` | The Codex session lists the skill. Tested with one Codex setup, not every version. |
+| Other | The project skill folder its documentation names | There is no universal folder, so check that agent's documentation. |
+
+Run this from the root of your project, with `src` pointing at this repository's copy (Bash):
+
+```bash
+src='<jev-check checkout>/.claude/skills/jev-check/SKILL.md'
+dst='.claude/skills/jev-check/SKILL.md'
+if [ -e "$dst" ]; then diff -u "$dst" "$src"; else mkdir -p "$(dirname "$dst")" && cp "$src" "$dst"; fi
+```
+
+It never replaces an existing skill. It shows the difference instead, so you can keep your changes or replace the file yourself. Check that the agent sees the skill in its own skill list.
 
 ## Gate
 
 ```bash
-git add -A
+git add -- app.py notes.md   # stage the files you want judged
 jev-check gate .              # one patch per staged file, to every check in project-context.json
 jev-check gate . --no-cache   # same, but call the API for every file
 ```
