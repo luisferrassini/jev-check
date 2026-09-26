@@ -117,28 +117,41 @@ The gate caches answers in the project's `output/cache/`. The cache key is the m
 
 ```
 $ jev-check eval public-release
+positive  negative  question
+9         2         belongs_in_project
+9         2         english_only
+9         2         no_outside_paths
+9         2         no_personal_info
+9         2         no_private_links
+9         2         no_third_party_content
 lowest-pass  highest-fail  threshold  question
-0.86         0.24          0.5        belongs_in_project
-0.93         0.12          0.5        english_only
-0.88         0.09          0.5        no_outside_paths
-0.91         0.02          0.5        no_personal_info
-0.9          0.02          0.5        no_private_links
-0.92         0.26          0.5        no_third_party_content
+0.83         0.2           0.5        belongs_in_project
+0.88         0.13          0.5        english_only
+0.87         0.1           0.5        no_outside_paths
+0.93         0.02          0.5        no_personal_info
+0.92         0.02          0.5        no_private_links
+0.91         0.22          0.5        no_third_party_content
 eval: 0 misses in 21 fixtures
 ```
 
-Every clean fixture scores 0.86 or more, and every problem scores 0.26 or less, so a threshold of 0.5 separates them with a wide margin on both sides. A question that could not separate its fixtures was removed.
+In this run with `jev-latest` on 2026-09-26, every clean fixture scored 0.83 or more and every problem scored 0.22 or less, so a threshold of 0.5 separates them with a wide margin on both sides. Scores vary between runs. A question that could not separate its fixtures was removed.
 
 `example` is a first check to try. It runs on a bundled script, so it needs no `--file`.
 
 ## Fixtures and eval
 
 ```
-fixtures/<check>/pass/<file>.patch              must pass every question
+fixtures/<check>/pass/<file>.patch              must pass every yes/no question
 fixtures/<check>/fail/<question>/<file>.patch   must fail that question
 ```
 
-`jev-check eval <check>` sends each fixture the way the gate sends a staged file and prints every `MISS`. Make a fixture by staging the file at its real path and running `git diff --cached --relative -- <file>`.
+`jev-check eval <check>` needs at least one pass fixture, and at least one fail fixture for every yes/no (`noul`) question. A fail folder must name a yes/no question. Files that do not end in `.patch`, such as notes, are ignored. Before anything is sent, `eval` reads, parses, and scans every fixture, so a missing set or a bad fixture costs no API call.
+
+A probability at or above the threshold passes, as in the gate. A pass fixture counts one miss per question below its threshold. A fail fixture counts a miss only for its own question.
+
+Each fixture is one single-file patch from git. Make one by staging the file at its real path and running `git diff --cached --relative -- <file>`. `eval` sends it under the path in its headers: the new path, the old path of a deleted file, or the `rename to` path of a pure rename. Quoted paths, spaces, and non-ASCII names work. Binary, mode-only, and multi-file patches are refused, and a lone `+++ b/<path>` line is not a fixture.
+
+The coverage counts show that the suite is complete, not that the model is accurate. Only a live `eval` run shows how the current model scores the fixtures.
 
 ## Contributing a better question
 

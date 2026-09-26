@@ -148,11 +148,13 @@ func TestEvalPreflight(t *testing.T) {
 	gitRun(t, repo, "init", "-q")
 	writeFile(t, filepath.Join(repo, "project-context.json"), `{"exclude":["fixtures/"],"checks":[{"check":"public-release","threshold":0.2}]}`)
 	fixtures := filepath.Join(repo, "fixtures", "public-release")
-	writeFile(t, filepath.Join(fixtures, "pass", "a.go.patch"), "+++ b/a.go\n+package a\n")
-	writeFile(t, filepath.Join(fixtures, "fail", "english_only", "b.go.patch"), "+++ b/b.go\n+package b\n")
+	writeFile(t, filepath.Join(fixtures, "pass", "a.go.patch"), gitPatch(t, "a.go", "package a\n"))
+	for _, q := range []string{"english_only", "no_personal_info", "no_outside_paths", "no_private_links", "no_third_party_content", "belongs_in_project"} {
+		writeFile(t, filepath.Join(fixtures, "fail", q, "b.go.patch"), gitPatch(t, "bad-"+q+".go", "package b\n"))
+	}
 	wantCode(t, 0, "eval", "public-release", repo) // fills the cache
 
-	writeFile(t, filepath.Join(fixtures, "fail", "english_only", "z.go.patch"), "+++ b/z.go\n+key = \""+awsKey+"\"\n")
+	writeFile(t, filepath.Join(fixtures, "fail", "english_only", "z.go.patch"), gitPatch(t, "z.go", "key = \""+awsKey+"\"\n"))
 	for _, args := range [][]string{{"eval", "public-release", repo}, {"eval", "public-release", repo, "--no-cache"}} {
 		if out := wantBlocked(t, requests, awsKey, args...); strings.Contains(out, "misses") || !strings.Contains(out, "fail/english_only/z.go.patch") {
 			t.Errorf("eval output after a block:\n%s", out)

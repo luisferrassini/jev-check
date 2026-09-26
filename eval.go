@@ -2,22 +2,36 @@ package main
 
 import (
 	"cmp"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 const evalUsage = `Usage: jev-check eval <check> [DIR] [--no-cache]   (default DIR: .)
 Tests a check's thresholds in DIR/project-context.json against DIR/fixtures/<check>/:
-every patch in pass/ must pass every question, and every patch in fail/<question>/
-must fail that question. Answers share the gate's cache. Every request is scanned
-for secrets before any is sent.
-Exit 0 no misses, 1 a miss or a secret found, 2 usage or API error.
+every patch in pass/ must pass every yes/no question, and every patch in
+fail/<question>/ must fail that question. pass/ and fail/<question>/ for every
+yes/no question each need at least one patch. A probability at or above the
+threshold passes.
+
+Each fixture is one single-file patch from git, such as
+  git diff --cached --relative -- <file>
+It is sent under the path in its headers: the new path, or the old path of a
+deleted file. Binary, mode-only, and multi-file patches are refused.
+
+Every fixture is read, parsed, and scanned for secrets before any is sent.
+Answers share the gate's cache.
+Exit 0 no misses, 1 a miss or a secret found, 2 usage, fixture, or API error.
 `
 
 func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
@@ -57,51 +71,52 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	// Only yes/no questions have thresholds, so each needs its own fail fixtures.
+	var blocking []string
+	for _, id := range slices.Sorted(maps.Keys(questions[0])) {
+		var q struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(questions[0][id], &q) == nil && q.Type == "noul" {
+			blocking = append(blocking, id)
+		}
+	}
+	if len(blocking) == 0 {
+		return 0, fmt.Errorf("check %s has no yes/no (noul) question, so there is no threshold to evaluate", name)
+	}
 	state, err := projectState(dir, p)
 	if err != nil {
 		return 0, err
 	}
 	fixtures := filepath.Join(dir, "fixtures", name)
-	pass, _ := filepath.Glob(filepath.Join(fixtures, "pass", "*.patch"))
-	fail, _ := filepath.Glob(filepath.Join(fixtures, "fail", "*", "*.patch"))
-	if len(pass) == 0 || len(fail) == 0 {
-		return 0, fmt.Errorf("%s needs patches in pass/ and in fail/<question>/", fixtures)
-	}
-	for _, path := range fail {
-		if q := filepath.Base(filepath.Dir(path)); questions[0][q] == nil {
-			return 0, fmt.Errorf("%s: check %s has no question %s", path, name, q)
-		}
+	jobs, err := findFixtures(fixtures, blocking)
+	if err != nil {
+		return 0, err
 	}
 
-	// Build and scan every request before the first cache lookup or API call,
+	// Read, parse, and scan every fixture before the first cache lookup or API call,
 	// so a bad fixture late in the list never lets earlier ones through.
-	reqs := map[string]request{}
 	var blocked []string
-	for _, path := range append(slices.Clone(pass), fail...) {
-		patch, err := os.ReadFile(path)
+	for i, job := range jobs {
+		patch, err := os.ReadFile(filepath.Join(fixtures, job.rel))
 		if err != nil {
 			return 0, err
 		}
-		// The patch is sent under its own file name, as the gate sends it, so the fixture folder never reaches Jev.
-		file, ok := patchFile(string(patch))
-		if !ok {
-			return 0, fmt.Errorf("%s has no +++ b/<path> line", path)
+		// The patch is sent under its target path, as the gate sends it, so the fixture folder never reaches Jev.
+		file, err := patchPath(string(patch))
+		if err != nil {
+			return 0, fmt.Errorf("%s: %w", printable(filepath.Join(fixtures, job.rel)), err)
 		}
 		fileState := maps.Clone(state)
 		fileState["files"] = map[string]string{file + ".patch": string(patch)}
-		reqs[path] = request{Model: defaultModel, Questions: questions[0], State: fileState}
-		if err := scanRequest(reqs[path]); err != nil {
-			rel, _ := filepath.Rel(fixtures, path)
-			blocked = append(blocked, fmt.Sprintf("== %s\n%v", safeLabel(rel, "a fixture"), err))
+		jobs[i].req = request{Model: defaultModel, Questions: questions[0], State: fileState}
+		if err := scanRequest(jobs[i].req); err != nil {
+			blocked = append(blocked, fmt.Sprintf("== %s\n%v", safeLabel(job.rel, "a fixture"), err))
 		}
 	}
 	if blocked != nil {
 		fmt.Fprintf(stdout, "%s\neval: BLOCKED, a fixture looks like it holds a secret; nothing was sent\n", strings.Join(blocked, "\n"))
 		return 1, nil
-	}
-	ask := func(path string) (response, error) {
-		res, _, err := cachedJev(dir, name, reqs[path], noCache, stderr)
-		return res, err
 	}
 	limit := func(q string) float64 {
 		if t, ok := c.PerQuestion[q]; ok {
@@ -110,62 +125,212 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 		return *c.Threshold
 	}
 
-	misses := 0
+	// A probability at or above its threshold passes, as in the gate.
+	misses, positives, negatives := 0, 0, map[string]int{}
 	lowestPass, highestFail := map[string]float64{}, map[string]float64{}
-	for _, path := range pass {
-		res, err := ask(path)
+	for _, job := range jobs {
+		res, _, err := cachedJev(dir, name, job.req, noCache, stderr)
 		if err != nil {
 			return 0, err
 		}
-		for q, a := range res.Answers {
-			if a.Type != "noul" {
-				continue
+		if job.question != "" {
+			a := *res.Answers[job.question].Noul
+			negatives[job.question]++
+			highestFail[job.question] = max(highestFail[job.question], a)
+			if a >= limit(job.question) {
+				fmt.Fprintf(stdout, "MISS  %s  %s  %s passes it\n", formatFloat(a), job.question, printable(job.rel))
+				misses++
 			}
-			if low, ok := lowestPass[q]; !ok || *a.Noul < low {
-				lowestPass[q] = *a.Noul
+			continue
+		}
+		positives++
+		for _, q := range blocking {
+			a := *res.Answers[q].Noul
+			if low, ok := lowestPass[q]; !ok || a < low {
+				lowestPass[q] = a
 			}
-			if *a.Noul < limit(q) {
-				fmt.Fprintf(stdout, "MISS  %s  %s  pass/%s fails it\n", formatFloat(*a.Noul), q, filepath.Base(path))
+			if a < limit(q) {
+				fmt.Fprintf(stdout, "MISS  %s  %s  %s fails it\n", formatFloat(a), q, printable(job.rel))
 				misses++
 			}
 		}
 	}
-	for _, path := range fail {
-		res, err := ask(path)
-		if err != nil {
-			return 0, err
-		}
-		q := filepath.Base(filepath.Dir(path))
-		a := res.Answers[q]
-		if a.Type != "noul" {
-			return 0, fmt.Errorf("%s: fail fixtures require a noul question", path)
-		}
-		highestFail[q] = max(highestFail[q], *a.Noul)
-		if *a.Noul >= limit(q) {
-			fmt.Fprintf(stdout, "MISS  %s  %s  fail/%s/%s passes it\n", formatFloat(*a.Noul), q, q, filepath.Base(path))
-			misses++
-		}
-	}
 
+	fmt.Fprintln(stdout, "positive  negative  question")
+	for _, q := range blocking {
+		fmt.Fprintf(stdout, "%-8d  %-8d  %s\n", positives, negatives[q], q)
+	}
 	// A question separates its fixtures when its highest fail is below its lowest pass.
 	fmt.Fprintln(stdout, "lowest-pass  highest-fail  threshold  question")
-	for _, q := range slices.Sorted(maps.Keys(lowestPass)) {
-		fail := "-"
-		if h, ok := highestFail[q]; ok {
-			fail = formatFloat(h)
-		}
-		fmt.Fprintf(stdout, "%-11s  %-12s  %-9s  %s\n", formatFloat(lowestPass[q]), fail, formatFloat(limit(q)), q)
+	for _, q := range blocking {
+		fmt.Fprintf(stdout, "%-11s  %-12s  %-9s  %s\n", formatFloat(lowestPass[q]), formatFloat(highestFail[q]), formatFloat(limit(q)), q)
 	}
-	fmt.Fprintf(stdout, "eval: %d misses in %d fixtures\n", misses, len(pass)+len(fail))
+	fmt.Fprintf(stdout, "eval: %d misses in %d fixtures\n", misses, len(jobs))
 	return min(misses, 1), nil
 }
 
-// patchFile returns the path in a patch's +++ b/<path> line.
-func patchFile(patch string) (string, bool) {
-	for _, line := range strings.Split(patch, "\n") {
-		if file, ok := strings.CutPrefix(line, "+++ b/"); ok {
-			return file, true
+// fixture is one patch to evaluate. question is empty for a pass fixture.
+type fixture struct {
+	rel, question string
+	req           request
+}
+
+// findFixtures lists pass/*.patch and fail/<question>/*.patch, sorted, pass first.
+// Every fail folder must name a blocking question, and the pass set and every
+// blocking question's fail set must be non-empty. Missing sets are named together.
+func findFixtures(fixtures string, blocking []string) ([]fixture, error) {
+	var jobs []fixture
+	add := func(rel, question string) error {
+		entries, err := os.ReadDir(filepath.Join(fixtures, rel))
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		for _, e := range entries {
+			name := filepath.Join(rel, e.Name())
+			if !strings.HasSuffix(e.Name(), ".patch") {
+				continue
+			}
+			if !e.Type().IsRegular() {
+				return fmt.Errorf("%s is not a regular file", printable(filepath.Join(fixtures, name)))
+			}
+			jobs = append(jobs, fixture{rel: name, question: question})
+		}
+		return nil
+	}
+	if err := add("pass", ""); err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(filepath.Join(fixtures, "fail"))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
+	for _, e := range entries {
+		path := printable(filepath.Join(fixtures, "fail", e.Name()))
+		switch {
+		case !e.IsDir() && strings.HasSuffix(e.Name(), ".patch"):
+			return nil, fmt.Errorf("%s: a fail fixture goes in fail/<question>/", path)
+		case !e.IsDir():
+		case !slices.Contains(blocking, e.Name()):
+			return nil, fmt.Errorf("%s: fail folders must name a yes/no question of the check (%s)", path, strings.Join(blocking, ", "))
+		default:
+			if err := add(filepath.Join("fail", e.Name()), e.Name()); err != nil {
+				return nil, err
+			}
 		}
 	}
-	return "", false
+	var missing []string
+	if !slices.ContainsFunc(jobs, func(f fixture) bool { return f.question == "" }) {
+		missing = append(missing, "pass/")
+	}
+	for _, q := range blocking {
+		if !slices.ContainsFunc(jobs, func(f fixture) bool { return f.question == q }) {
+			missing = append(missing, "fail/"+q+"/")
+		}
+	}
+	if missing != nil {
+		return nil, fmt.Errorf("%s needs patches in %s", printable(fixtures), strings.Join(missing, ", "))
+	}
+	return jobs, nil
+}
+
+// patchPath returns the project path a single-file git patch changes: the new path,
+// or the old one for a deletion. It reads only the headers before the first hunk,
+// so a hunk line that looks like a header never counts.
+func patchPath(patch string) (string, error) {
+	lines := strings.Split(patch, "\n")
+	if n := len(slices.DeleteFunc(slices.Clone(lines), func(l string) bool { return !strings.HasPrefix(l, "diff --git ") })); n != 1 {
+		return "", fmt.Errorf("needs exactly one diff --git file section, found %d; make one fixture per file", n)
+	}
+	h := map[string]string{}
+	started := false
+	for _, l := range lines {
+		if strings.HasPrefix(l, "diff --git ") {
+			started = true
+			continue
+		}
+		if !started {
+			continue
+		}
+		if strings.HasPrefix(l, "@@") {
+			break
+		}
+		if strings.HasPrefix(l, "Binary files ") || l == "GIT binary patch" {
+			return "", errors.New("binary patches are not supported")
+		}
+		for _, key := range []string{"--- ", "+++ ", "rename from ", "rename to "} {
+			if v, ok := strings.CutPrefix(l, key); ok {
+				if _, dup := h[key]; dup {
+					return "", fmt.Errorf("has two %q lines", strings.TrimSpace(key))
+				}
+				h[key] = v
+			}
+		}
+	}
+	minus, hasMinus := h["--- "]
+	plus, hasPlus := h["+++ "]
+	to, hasTo := h["rename to "]
+	if _, hasFrom := h["rename from "]; hasFrom != hasTo {
+		return "", errors.New("needs both rename from and rename to")
+	}
+	var path string
+	var err error
+	switch {
+	case hasMinus != hasPlus:
+		return "", errors.New("needs both a --- and a +++ line")
+	case hasPlus && plus == "/dev/null" && minus == "/dev/null":
+		return "", errors.New("has /dev/null on both sides")
+	case hasPlus && plus == "/dev/null":
+		path, err = decodePath(minus, "a/")
+	case hasPlus:
+		if minus != "/dev/null" {
+			if _, err := decodePath(minus, "a/"); err != nil {
+				return "", err
+			}
+		}
+		path, err = decodePath(plus, "b/")
+	case hasTo:
+		path, err = decodePath(to, "")
+	default:
+		return "", errors.New("has no ---/+++ or rename lines; binary, mode-only, and other formats are not supported")
+	}
+	if err != nil {
+		return "", err
+	}
+	if hasTo {
+		if renamed, err := decodePath(to, ""); err != nil || renamed != path {
+			return "", errors.New("its rename to line and its +++ line disagree")
+		}
+	}
+	if path == "" || strings.ContainsRune(path, 0) || strings.HasPrefix(path, "/") || !utf8.ValidString(path) ||
+		slices.Contains(strings.Split(path, "/"), "..") {
+		return "", fmt.Errorf("has an unsafe or unsupported path %q", path)
+	}
+	return path, nil
+}
+
+// decodePath decodes one path field of a git header and strips its a/ or b/ prefix.
+// Git ends an unquoted path that holds a space with a tab, and quotes any path with
+// a tab, quote, backslash, control, or (by default) non-ASCII character.
+func decodePath(field, prefix string) (string, error) {
+	field = strings.TrimSuffix(field, "\t")
+	if strings.HasPrefix(field, `"`) {
+		unquoted, err := strconv.Unquote(field)
+		if err != nil {
+			return "", errors.New("has an invalid quoted path")
+		}
+		field = unquoted
+	}
+	path, ok := strings.CutPrefix(field, prefix)
+	if !ok {
+		return "", fmt.Errorf("has a path without the %s prefix", prefix)
+	}
+	return path, nil
+}
+
+// printable quotes s when it holds a control character, so a file name cannot forge an output line.
+func printable(s string) string {
+	if strings.IndexFunc(s, unicode.IsControl) >= 0 {
+		return strconv.Quote(s)
+	}
+	return s
 }
