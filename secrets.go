@@ -1,13 +1,18 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 type secretPattern struct {
@@ -62,24 +67,96 @@ func secretsCmd(args []string, stdout, _ io.Writer) (int, error) {
 }
 
 // scanSecrets returns one line per kind of secret in a patch, including removed and context lines.
-// It names the patch line numbers, never the value.
+// It names the patch line numbers, never the value, and names the patch only when the name is safe to print.
 func scanSecrets(name, patch string) []string {
+	return secretReports(safeLabel(name, "patch"), patch, true)
+}
+
+// secretReports returns one line per kind of secret in text. With lines set, it names the line numbers.
+func secretReports(label, text string, lines bool) []string {
 	var reports []string
-	lines := strings.Split(patch, "\n")
+	split := strings.Split(text, "\n")
 	for _, p := range secretPatterns {
 		var hits []string
-		for i, line := range lines {
-			// Strip one diff marker so anchored patterns also match removed lines.
+		for i, line := range split {
+			// Also try without one diff marker, so anchored patterns match removed lines,
+			// while text that is not a patch keeps its first character.
+			unmarked := line
 			if len(line) > 0 && strings.ContainsRune("+- ", rune(line[0])) {
-				line = line[1:]
+				unmarked = line[1:]
 			}
-			if p.re.MatchString(line) {
+			if p.re.MatchString(line) || p.re.MatchString(unmarked) {
 				hits = append(hits, strconv.Itoa(i+1))
 			}
 		}
-		if hits != nil {
-			reports = append(reports, fmt.Sprintf("SECRET  %s line %s looks like %s", name, strings.Join(hits, ","), p.kind))
+		switch {
+		case hits == nil:
+		case lines:
+			reports = append(reports, fmt.Sprintf("SECRET  %s line %s looks like %s", label, strings.Join(hits, ","), p.kind))
+		default:
+			reports = append(reports, fmt.Sprintf("SECRET  %s looks like %s", label, p.kind))
 		}
 	}
 	return reports
+}
+
+// safeLabel returns name for a diagnostic, or fallback when name looks like a secret
+// or holds a control character that could forge another output line.
+func safeLabel(name, fallback string) string {
+	if strings.IndexFunc(name, unicode.IsControl) >= 0 || secretReports("", name, false) != nil {
+		return fallback
+	}
+	return name
+}
+
+// secretsFound is a local refusal to send content that looks like it holds a secret.
+// run prints its reports and exits 1, unlike other errors.
+type secretsFound []string
+
+func (s secretsFound) Error() string { return strings.Join(s, "\n") }
+
+// scanRequest scans everything a request would send: the model, question ids and
+// definitions, and every key and value in the state, after JSON escapes are decoded.
+// It returns nil when the request is clean.
+func scanRequest(req request) error {
+	data, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return err
+	}
+	var reports []string
+	scanValue("request", v, &reports)
+	if reports == nil {
+		return nil
+	}
+	return secretsFound(slices.Compact(reports))
+}
+
+// scanValue scans each string with its line numbers, each object key, and each
+// scalar entry as a quoted assignment, since a value like abc123def456 only looks
+// like a secret next to a key like password. Labels use safe keys or entry numbers.
+func scanValue(label string, v any, reports *[]string) {
+	switch v := v.(type) {
+	case string:
+		*reports = append(*reports, secretReports(label, v, strings.Contains(v, "\n"))...)
+	case []any:
+		for i, e := range v {
+			scanValue(fmt.Sprintf("%s[%d]", label, i), e, reports)
+		}
+	case map[string]any:
+		for i, k := range slices.Sorted(maps.Keys(v)) {
+			entry := safeLabel(label+"."+k, fmt.Sprintf("%s entry %d", label, i+1))
+			*reports = append(*reports, secretReports(entry+" key", k, false)...)
+			switch e := v[k].(type) {
+			case string, json.Number, bool:
+				*reports = append(*reports, secretReports(entry, fmt.Sprintf("%q: \"%v\"", k, e), false)...)
+			}
+			scanValue(entry, v[k], reports)
+		}
+	}
 }

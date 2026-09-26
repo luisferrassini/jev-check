@@ -3,6 +3,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -22,7 +23,9 @@ Commands:
   gate [DIR]                run DIR's checks on its staged files
   eval <check> [DIR]        test a check's thresholds on DIR/fixtures/<check>/
 
-Exit codes: 0 ok, 1 a check failed, 2 usage or API error.
+Exit codes: 0 ok, 1 a check failed or a request looked like it held a secret,
+2 usage or API error. A request that looks like it holds a secret is never
+sent, saved, cached, or printed.
 `
 
 type command func(args []string, stdout, stderr io.Writer) (int, error)
@@ -50,6 +53,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	code, err := cmd(args[1:], stdout, stderr)
+	var found secretsFound
+	if errors.As(err, &found) {
+		fmt.Fprintln(stdout, found)
+		return 1
+	}
 	if err != nil {
 		fmt.Fprintf(stderr, "jev-check %s: %v\n", args[0], err)
 		return 2

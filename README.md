@@ -79,7 +79,17 @@ FAIL  0.12  english_only
 gate: FAIL
 ```
 
-Each answer is the probability that the file is fine on that axis. A file fails when any answer is below the check's threshold. Before anything is sent, a local scan checks added, removed, and context lines and drops any patch that looks like it holds a secret and prints `SECRET <file> line N looks like <kind>`. Missing or invalid answers are errors, including answers loaded from cache. Exit codes: `0` pass, `1` fail, `2` usage or API error.
+Each answer is the probability that the file is fine on that axis. A file fails when any answer is below the check's threshold. Missing or invalid answers are errors, including answers loaded from cache. Exit codes: `0` pass, `1` fail or a secret found, `2` usage or API error.
+
+### Secret scan
+
+Before a request is printed, cached, saved, or sent, a local scan checks all of it: the model, the questions, the project fields, the tree, file names, and every patch line, including removed and context lines. JSON escapes are decoded first, and each key and value is also checked as a pair, so a value that looks harmless alone is caught next to a key such as `password`. A finding prints `SECRET <location> line N looks like <kind>`, never the value, and exits `1`:
+
+- In `gate`, a secret in the project fields or tree stops the whole gate. One in a check's questions skips that check. One in a patch skips that file, and the other files still run.
+- `eval` scans every fixture before it sends any.
+- `ask` and `ask --dry-run` print the findings instead of the request.
+
+The scan matches known patterns, such as provider token formats, private key headers, and credentials in URLs. It cannot recognize every secret. There is no bypass flag: remove or replace the value.
 
 The gate reads `project-context.json` in the project folder:
 
@@ -159,7 +169,7 @@ jev-check <command> --help
 
 - `ask.go` holds `list`, `ask`, and the bundled checks.
 - `context.go` builds the project state from `project-context.json` and the file tree, and holds `init`.
-- `secrets.go` scans patches for secrets locally, before anything is sent.
+- `secrets.go` scans patches and whole requests for secrets locally, before anything is sent.
 - `judge.go` applies thresholds to answers.
 - `gate.go` runs the checks on one patch per staged file, with a cache.
 - `eval.go` tests a check's thresholds on its fixtures.

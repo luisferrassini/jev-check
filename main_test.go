@@ -40,6 +40,10 @@ func setup(t *testing.T) *[]request {
 			return
 		}
 		got = append(got, req)
+		if req.Questions["api_down"] != nil {
+			http.Error(w, "down", http.StatusInternalServerError)
+			return
+		}
 		if jevAnswers != "" {
 			fmt.Fprint(w, jevAnswers)
 			return
@@ -50,7 +54,7 @@ func setup(t *testing.T) *[]request {
 			if id == "english_only" {
 				value = 0.3
 			}
-			if id == "english_only" && req.State["files"].(map[string]any)["b.go.patch"] != nil {
+			if files, _ := req.State["files"].(map[string]any); id == "english_only" && files["b.go.patch"] != nil {
 				value = 0.1
 			}
 			answers[id] = map[string]any{"type": "noul", "noul": value}
