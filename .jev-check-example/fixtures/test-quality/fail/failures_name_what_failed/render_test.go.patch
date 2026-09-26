@@ -1,0 +1,32 @@
+diff --git a/report/render_test.go b/report/render_test.go
+new file mode 100644
+index 0000000..6b8ffb7
+--- /dev/null
++++ b/report/render_test.go
+@@ -0,0 +1,26 @@
++package report
++
++import (
++	"strings"
++	"testing"
++)
++
++func TestRender(t *testing.T) {
++	tests := []struct {
++		name string
++		rows []Row
++		want string
++	}{
++		{"one row", []Row{{"a", 1}}, "a 1\n"},
++		{"two rows", []Row{{"a", 1}, {"b", 2}}, "a 1\nb 2\n"},
++	}
++	for _, tc := range tests {
++		var out strings.Builder
++		if err := Render(&out, tc.rows); err != nil {
++			t.Fatal(err)
++		}
++		if out.String() != tc.want {
++			t.Errorf("unexpected output")
++		}
++	}
++}

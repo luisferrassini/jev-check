@@ -1,0 +1,27 @@
+diff --git a/release/latest_test.go b/release/latest_test.go
+new file mode 100644
+index 0000000..81556dd
+--- /dev/null
++++ b/release/latest_test.go
+@@ -0,0 +1,21 @@
++package release
++
++import (
++	"net/http"
++	"testing"
++)
++
++func TestLatestTag(t *testing.T) {
++	resp, err := http.Get("https://api.github.com/repos/golang/go/releases/latest")
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer resp.Body.Close()
++	tag, err := ParseLatest(resp.Body)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if tag == "" {
++		t.Errorf("ParseLatest of the GitHub response: empty tag")
++	}
++}

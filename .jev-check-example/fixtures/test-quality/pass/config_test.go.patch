@@ -1,0 +1,29 @@
+diff --git a/config_test.go b/config_test.go
+new file mode 100644
+index 0000000..34415b0
+--- /dev/null
++++ b/config_test.go
+@@ -0,0 +1,23 @@
++package main
++
++import (
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++)
++
++func TestInitWritesConfig(t *testing.T) {
++	dir := t.TempDir()
++	var stdout, stderr strings.Builder
++	if code := run([]string{"init", dir}, &stdout, &stderr); code != 0 {
++		t.Fatalf("init %s: exit %d, stderr: %s", dir, code, stderr.String())
++	}
++	data, err := os.ReadFile(filepath.Join(dir, "config.json"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !strings.Contains(string(data), `"checks"`) {
++		t.Errorf("config.json has no checks:\n%s", data)
++	}
++}

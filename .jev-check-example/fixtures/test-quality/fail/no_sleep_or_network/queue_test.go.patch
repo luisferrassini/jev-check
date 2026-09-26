@@ -1,0 +1,23 @@
+diff --git a/queue/queue_test.go b/queue/queue_test.go
+new file mode 100644
+index 0000000..9157d55
+--- /dev/null
++++ b/queue/queue_test.go
+@@ -0,0 +1,17 @@
++package queue
++
++import (
++	"testing"
++	"time"
++)
++
++func TestConsumerDrains(t *testing.T) {
++	q := New()
++	go q.Consume()
++	q.Push("a")
++	q.Push("b")
++	time.Sleep(500 * time.Millisecond)
++	if n := q.Len(); n != 0 {
++		t.Errorf("queue after pushing a and b: len %d, want 0", n)
++	}
++}

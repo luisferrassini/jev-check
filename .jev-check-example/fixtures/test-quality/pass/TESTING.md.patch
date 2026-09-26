@@ -1,0 +1,10 @@
+diff --git a/docs/TESTING.md b/docs/TESTING.md
+new file mode 100644
+index 0000000..0197911
+--- /dev/null
++++ b/docs/TESTING.md
+@@ -0,0 +1,4 @@
++# Testing
++
++Run `go test ./...`. Tests use a fake server from `net/http/httptest`, so they
++need no network. Do not add `time.Sleep`; wait on a channel instead.

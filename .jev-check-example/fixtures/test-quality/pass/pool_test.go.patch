@@ -1,0 +1,27 @@
+diff --git a/worker/pool_test.go b/worker/pool_test.go
+new file mode 100644
+index 0000000..846cdb0
+--- /dev/null
++++ b/worker/pool_test.go
+@@ -0,0 +1,21 @@
++package worker
++
++import (
++	"testing"
++	"time"
++)
++
++func TestPoolRunsJob(t *testing.T) {
++	p := NewPool(2)
++	defer p.Close()
++	done := make(chan int, 1)
++	p.Submit(func() { done <- 42 })
++	select {
++	case got := <-done:
++		if got != 42 {
++			t.Errorf("job result: got %d, want 42", got)
++		}
++	case <-time.After(5 * time.Second):
++		t.Fatal("job did not finish within 5s")
++	}
++}

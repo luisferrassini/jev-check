@@ -1,0 +1,31 @@
+diff --git a/client_test.go b/client_test.go
+new file mode 100644
+index 0000000..df398e9
+--- /dev/null
++++ b/client_test.go
+@@ -0,0 +1,25 @@
++package main
++
++import (
++	"fmt"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++)
++
++func TestFetchUsesServer(t *testing.T) {
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		fmt.Fprint(w, `{"version":"1.2.0"}`)
++	}))
++	defer server.Close()
++
++	var stdout, stderr strings.Builder
++	code := run([]string{"fetch", "--endpoint", server.URL}, &stdout, &stderr)
++	if code != 0 {
++		t.Fatalf("fetch: exit %d, want 0\nstderr: %s", code, stderr.String())
++	}
++	if got := stdout.String(); got != "1.2.0\n" {
++		t.Errorf("fetch: stdout %q, want %q", got, "1.2.0\n")
++	}
++}

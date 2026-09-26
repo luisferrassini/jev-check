@@ -1,0 +1,23 @@
+diff --git a/list_test.go b/list_test.go
+new file mode 100644
+index 0000000..dbc2362
+--- /dev/null
++++ b/list_test.go
+@@ -0,0 +1,17 @@
++package main
++
++import (
++	"strings"
++	"testing"
++)
++
++func TestListShowsBundledChecks(t *testing.T) {
++	setup(t)
++	out := wantCode(t, 0, "list")
++	for _, name := range []string{"public-release", "example"} {
++		if !strings.Contains(out, name+" [bundled") {
++			t.Errorf("list: no %s in:\n%s", name, out)
++		}
++	}
++	wantCode(t, 2, "list", "a", "b")
++}

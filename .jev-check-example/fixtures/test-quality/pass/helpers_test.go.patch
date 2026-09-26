@@ -1,0 +1,29 @@
+diff --git a/helpers_test.go b/helpers_test.go
+new file mode 100644
+index 0000000..0678d57
+--- /dev/null
++++ b/helpers_test.go
+@@ -0,0 +1,23 @@
++package main
++
++import (
++	"strings"
++	"testing"
++)
++
++// mustRun runs one command and fails the test unless it exits with want.
++func mustRun(t *testing.T, want int, args ...string) string {
++	t.Helper()
++	var stdout, stderr strings.Builder
++	if code := run(args, &stdout, &stderr); code != want {
++		t.Fatalf("tool %s: exit %d, want %d\nstderr: %s", strings.Join(args, " "), code, want, stderr.String())
++	}
++	return stdout.String()
++}
++
++func TestVersion(t *testing.T) {
++	if out := mustRun(t, 0, "version"); !strings.HasPrefix(out, "tool ") {
++		t.Errorf("version: %q", out)
++	}
++	mustRun(t, 2, "version", "--bogus")
++}

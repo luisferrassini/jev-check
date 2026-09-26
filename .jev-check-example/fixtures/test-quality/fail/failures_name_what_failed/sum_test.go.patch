@@ -1,0 +1,18 @@
+diff --git a/mathx/sum_test.go b/mathx/sum_test.go
+new file mode 100644
+index 0000000..25d2104
+--- /dev/null
++++ b/mathx/sum_test.go
+@@ -0,0 +1,12 @@
++package mathx
++
++import "testing"
++
++func TestSum(t *testing.T) {
++	if Sum([]int{1, 2, 3}) != 6 {
++		t.Error("failed")
++	}
++	if Sum(nil) != 0 {
++		t.Error("failed")
++	}
++}

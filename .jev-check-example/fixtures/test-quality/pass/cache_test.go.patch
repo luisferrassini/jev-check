@@ -1,0 +1,21 @@
+diff --git a/cache/cache_test.go b/cache/cache_test.go
+new file mode 100644
+index 0000000..3df425b
+--- /dev/null
++++ b/cache/cache_test.go
+@@ -0,0 +1,15 @@
++package cache
++
++import "testing"
++
++func TestCacheGetAfterPut(t *testing.T) {
++	c := New(2)
++	c.Put("https://example.com/a", []byte("A"))
++	got, ok := c.Get("https://example.com/a")
++	if !ok || string(got) != "A" {
++		t.Errorf("Get after Put: got %q, %v; want %q, true", got, ok, "A")
++	}
++	if _, ok := c.Get("https://example.com/missing"); ok {
++		t.Errorf("Get of a missing key: ok is true, want false")
++	}
++}

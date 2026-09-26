@@ -44,7 +44,7 @@ jev-check list
 jev-check ask example --dry-run
 ```
 
-`list` shows the bundled checks: `coding-style`, `example`, `maintainability`, `no-leftovers`, and `public-release`. `ask example --dry-run` prints the request it would send, as JSON with `model`, `questions`, and `state`, and exits 0. Nothing is sent, so this is a preview, not a judgment of the sample script.
+`list` shows the bundled checks: `coding-style`, `example`, `maintainability`, `no-leftovers`, `public-release`, and `test-quality`. `ask example --dry-run` prints the request it would send, as JSON with `model`, `questions`, and `state`, and exits 0. Nothing is sent, so this is a preview, not a judgment of the sample script.
 
 ### 4. Make a practice repository
 
@@ -387,6 +387,14 @@ It judges only what added or changed lines show. Removed code, untouched context
 - `no_temporary_skips`: no new unconditional test skip without a tracking issue, and no focus marker such as `it.only` or `fit`. A skip behind a condition, with a reason, is accepted.
 
 Removed leftovers, untouched context, and documentation files pass. To enable it, add `{ "check": "no-leftovers", "threshold": 0.41 }` to `checks`. The scores behind the threshold are in [`.jev-check-example/fixtures/no-leftovers/CALIBRATION.md`](.jev-check-example/fixtures/no-leftovers/CALIBRATION.md). To evaluate it, use the disposable project from [Evaluating an opt-in check](#evaluating-an-opt-in-check) with `.jev-check-example/fixtures/no-leftovers`, no `CODING_STYLE.md`, and `{"check":"no-leftovers","threshold":0.41}`.
+
+`test-quality` is opt-in and covers Go test files (`*_test.go`) only. It makes three narrow judgments about new test code in one patch:
+
+- `tests_use_entry_point`: no new test checks an unexported internal function directly. `run`, `main`, exported APIs, HTTP handlers, and test helpers are accepted.
+- `no_sleep_or_network`: no new `time.Sleep` and no call to a real network host. `httptest`, loopback listeners, `t.TempDir`, and a `time.After` timeout guard are accepted.
+- `failures_name_what_failed`: every new failure report names the case, input, or value that failed. `t.Fatal(err)` is accepted.
+
+Removed code, untouched context, non-test files, and documentation pass. The check sees one file, so it cannot tell whether a lowercase function is a helper in another test file. To enable it, add `{ "check": "test-quality", "threshold": 0.45 }` to `checks`. The scores behind the threshold are in [`.jev-check-example/fixtures/test-quality/CALIBRATION.md`](.jev-check-example/fixtures/test-quality/CALIBRATION.md). To evaluate it, use the disposable project from [Evaluating an opt-in check](#evaluating-an-opt-in-check) with `.jev-check-example/fixtures/test-quality`, no `CODING_STYLE.md`, and `{"check":"test-quality","threshold":0.45}`.
 
 `example` is a first check to try. It runs on a bundled script, so it needs no `--file`.
 

@@ -1,0 +1,19 @@
+diff --git a/flags_test.go b/flags_test.go
+new file mode 100644
+index 0000000..fc6242e
+--- /dev/null
++++ b/flags_test.go
+@@ -0,0 +1,13 @@
++package main
++
++import "testing"
++
++func TestParseFlags(t *testing.T) {
++	opts, err := parseFlags([]string{"--json", "--limit", "5", "scan"})
++	if err != nil {
++		t.Fatalf("parseFlags(--json --limit 5 scan): %v", err)
++	}
++	if !opts.JSON || opts.Limit != 5 || opts.Command != "scan" {
++		t.Errorf("parseFlags(--json --limit 5 scan) = %+v, want JSON, limit 5, command scan", opts)
++	}
++}

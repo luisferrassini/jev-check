@@ -1,0 +1,16 @@
+diff --git a/test_retry.py b/test_retry.py
+new file mode 100644
+index 0000000..3fe5497
+--- /dev/null
++++ b/test_retry.py
+@@ -0,0 +1,10 @@
++import time
++import unittest
++
++from retry import do
++
++
++class RetryTest(unittest.TestCase):
++    def test_gives_up(self):
++        time.sleep(0.1)
++        self.assertEqual(do(lambda: 1 / 0, attempts=2), None)

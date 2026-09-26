@@ -1,0 +1,26 @@
+diff --git a/notify/webhook.go b/notify/webhook.go
+new file mode 100644
+index 0000000..e6e2930
+--- /dev/null
++++ b/notify/webhook.go
+@@ -0,0 +1,20 @@
++package notify
++
++import (
++	"fmt"
++	"net/http"
++	"strings"
++)
++
++// Send posts message to the team webhook.
++func Send(message string) error {
++	resp, err := http.Post("https://hooks.example.com/team", "text/plain", strings.NewReader(message))
++	if err != nil {
++		return err
++	}
++	defer resp.Body.Close()
++	if resp.StatusCode >= 300 {
++		return fmt.Errorf("webhook: status %s", resp.Status)
++	}
++	return nil
++}
