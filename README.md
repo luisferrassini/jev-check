@@ -285,7 +285,7 @@ JEV_CHECK_MODEL=<a pinned model ID>
 - The key is sent to whatever endpoint is set. The endpoint must be an absolute URL with a host, with no user name, password, or `#fragment`. `https` works for any host. `http` works only for `localhost`, `127.0.0.0/8`, and `::1`. Any other value is exit 2 before any request, including `ask --dry-run`.
 - Redirects are not followed. A 3xx response is an API error, exit 2, so the key never goes to the redirect target.
 - `ask --dry-run` prints the request with the resolved model.
-- `jev-check doctor [DIR]` prints the settings file, the endpoint and model with their sources, whether the key is set, and whether `.jev-check/project-context.json`, Git, and `.jev-check/output/` are usable, and reports a root `project-context.json` from the old layout. It exits 0 when every line is `ok` and 2 otherwise. It never calls the API or prints the key.
+- `jev-check doctor [DIR]` prints the settings file, the endpoint and model with their sources, whether the key is set, and whether `.jev-check/project-context.json`, Git, and `.jev-check/output/` are usable, and reports a root `project-context.json` from the old layout. It exits 0 when every line is `ok`, 1 when the model looks like a secret, and 2 on any other problem. It never calls the API or prints the key.
 
 ## Gate
 
