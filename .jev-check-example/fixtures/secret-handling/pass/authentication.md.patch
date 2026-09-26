@@ -1,0 +1,19 @@
+diff --git a/docs/authentication.md b/docs/authentication.md
+new file mode 100644
+index 0000000..0f2fc09
+--- /dev/null
++++ b/docs/authentication.md
+@@ -0,0 +1,13 @@
++# Authentication
++
++Set `API_TOKEN` in your environment, then pass it in the Authorization header:
++
++```bash
++curl -H "Authorization: Bearer $API_TOKEN" "$API_URL/v1/items"
++```
++
++Never print the token in logs. To check that it is set, print its length:
++
++```bash
++echo "API_TOKEN has ${#API_TOKEN} characters"
++```

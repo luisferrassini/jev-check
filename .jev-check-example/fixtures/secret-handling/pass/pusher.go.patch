@@ -1,0 +1,26 @@
+diff --git a/internal/metrics/pusher.go b/internal/metrics/pusher.go
+new file mode 100644
+index 0000000..64c832a
+--- /dev/null
++++ b/internal/metrics/pusher.go
+@@ -0,0 +1,20 @@
++package metrics
++
++import (
++	"context"
++	"net/http"
++)
++
++// push sends one batch to baseURL with the given token.
++func push(ctx context.Context, baseURL, token string, b *Batch) error {
++	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/v1/push", b.Reader())
++	if err != nil {
++		return err
++	}
++	req.Header.Set("Authorization", "Bearer "+token)
++	resp, err := http.DefaultClient.Do(req)
++	if err != nil {
++		return err
++	}
++	return resp.Body.Close()
++}

@@ -1,0 +1,23 @@
+diff --git a/internal/publish/publish.go b/internal/publish/publish.go
+index e42edf2..50e3081 100644
+--- a/internal/publish/publish.go
++++ b/internal/publish/publish.go
+@@ -1,5 +1,18 @@
+ package publish
+ 
++import "net/http"
++
+ // Endpoint is an https URL, or http only for a loopback host.
+ // It can only be built by ParseEndpoint, which rejects anything else.
+ type Endpoint struct{ raw string }
++
++// Publish sends the report to ep with the token.
++func Publish(ep Endpoint, token string, report *Report) error {
++	req, err := http.NewRequest(http.MethodPost, ep.raw, report.Reader())
++	if err != nil {
++		return err
++	}
++	req.Header.Set("Authorization", "Bearer "+token)
++	_, err = http.DefaultClient.Do(req)
++	return err
++}

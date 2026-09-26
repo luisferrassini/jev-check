@@ -1,0 +1,19 @@
+diff --git a/tools/notify.py b/tools/notify.py
+new file mode 100644
+index 0000000..92f7100
+--- /dev/null
++++ b/tools/notify.py
+@@ -0,0 +1,13 @@
++import os
++from urllib.parse import urlparse
++
++import requests
++
++
++def post_alert(message: str) -> None:
++    webhook = os.environ["ALERT_WEBHOOK_URL"]
++    parsed = urlparse(webhook)
++    if parsed.scheme != "https" or not parsed.hostname:
++        raise ValueError("ALERT_WEBHOOK_URL must be an https URL")
++    token = os.environ["ALERT_TOKEN"]
++    requests.post(webhook, json={"text": message}, headers={"Authorization": f"Bearer {token}"}, timeout=10)

@@ -9,7 +9,7 @@ import (
 )
 
 // optInChecks are the bundled opt-in checks whose corpora TestOptInCorpora covers.
-var optInChecks = []string{"no-leftovers", "test-quality"}
+var optInChecks = []string{"no-leftovers", "test-quality", "secret-handling"}
 
 // TestOptInCorpora runs eval offline on a disposable copy of each opt-in corpus,
 // as the README's setup does, and checks what the corpus and the requests hold.

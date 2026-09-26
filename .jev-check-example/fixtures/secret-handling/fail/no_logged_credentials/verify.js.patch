@@ -1,0 +1,17 @@
+diff --git a/src/auth/verify.js b/src/auth/verify.js
+new file mode 100644
+index 0000000..eead64c
+--- /dev/null
++++ b/src/auth/verify.js
+@@ -0,0 +1,11 @@
++const VERIFY_URL = "https://auth.example.com/v1/verify";
++
++export async function verify(token) {
++  const res = await fetch(VERIFY_URL, {
++    headers: { Authorization: `Bearer ${token}` },
++  });
++  if (!res.ok) {
++    throw new Error(`token ${token} was rejected with status ${res.status}`);
++  }
++  return res.json();
++}

@@ -1,0 +1,19 @@
+diff --git a/src/api/pages.js b/src/api/pages.js
+new file mode 100644
+index 0000000..a1800e1
+--- /dev/null
++++ b/src/api/pages.js
+@@ -0,0 +1,13 @@
++const FIRST_PAGE = "https://api.example.com/v2/items";
++
++export async function fetchAll(token) {
++  const items = [];
++  let url = FIRST_PAGE;
++  while (url) {
++    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
++    const body = await res.json();
++    items.push(...body.items);
++    url = body.next_url;
++  }
++  return items;
++}

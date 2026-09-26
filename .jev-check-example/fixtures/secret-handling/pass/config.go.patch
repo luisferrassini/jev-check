@@ -1,0 +1,31 @@
+diff --git a/internal/config/config.go b/internal/config/config.go
+new file mode 100644
+index 0000000..40a6d0f
+--- /dev/null
++++ b/internal/config/config.go
+@@ -0,0 +1,25 @@
++package config
++
++import (
++	"errors"
++	"fmt"
++	"os"
++)
++
++type Config struct {
++	Endpoint string
++	Password string
++}
++
++// String hides the password so a Config is safe to log.
++func (c Config) String() string {
++	return fmt.Sprintf("endpoint=%s password=[redacted]", c.Endpoint)
++}
++
++func Load() (Config, error) {
++	c := Config{Endpoint: os.Getenv("DB_ENDPOINT"), Password: os.Getenv("DB_PASSWORD")}
++	if c.Password == "" {
++		return c, errors.New("DB_PASSWORD is not set")
++	}
++	return c, nil
++}

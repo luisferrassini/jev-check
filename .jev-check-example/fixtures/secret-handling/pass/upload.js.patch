@@ -1,0 +1,19 @@
+diff --git a/src/upload.js b/src/upload.js
+new file mode 100644
+index 0000000..b72ca74
+--- /dev/null
++++ b/src/upload.js
+@@ -0,0 +1,13 @@
++const ALLOWED_HOSTS = new Set(["uploads.example.com", "uploads.example.net"]);
++
++export async function upload(file) {
++  const target = new URL(process.env.UPLOAD_URL);
++  if (target.protocol !== "https:" || !ALLOWED_HOSTS.has(target.hostname)) {
++    throw new Error("UPLOAD_URL must be https on an allowed host");
++  }
++  return fetch(target, {
++    method: "PUT",
++    headers: { "X-Api-Key": process.env.UPLOAD_API_KEY },
++    body: file,
++  });
++}

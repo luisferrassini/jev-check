@@ -1,0 +1,20 @@
+diff --git a/app/auth_debug.py b/app/auth_debug.py
+new file mode 100644
+index 0000000..a449c77
+--- /dev/null
++++ b/app/auth_debug.py
+@@ -0,0 +1,14 @@
++import logging
++
++logger = logging.getLogger(__name__)
++
++
++def mask(value: str) -> str:
++    """Hide all but the last four characters."""
++    if len(value) <= 4:
++        return "****"
++    return "****" + value[-4:]
++
++
++def log_session(user: str, session_token: str) -> None:
++    logger.info("session opened for %s with token %s", user, mask(session_token))

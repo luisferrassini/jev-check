@@ -1,0 +1,27 @@
+diff --git a/tests/test_client.py b/tests/test_client.py
+new file mode 100644
+index 0000000..37cef7e
+--- /dev/null
++++ b/tests/test_client.py
+@@ -0,0 +1,21 @@
++import http.server
++import threading
++
++from app.client import Client
++
++
++def test_sends_token_to_local_server():
++    seen = {}
++
++    class Handler(http.server.BaseHTTPRequestHandler):
++        def do_GET(self):
++            seen["auth"] = self.headers.get("Authorization")
++            self.send_response(204)
++            self.end_headers()
++
++    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
++    threading.Thread(target=server.serve_forever, daemon=True).start()
++    fake_token = "not-a-real-token"
++    Client(f"http://127.0.0.1:{server.server_port}", fake_token).ping()
++    server.shutdown()
++    assert seen["auth"] == "Bearer " + fake_token

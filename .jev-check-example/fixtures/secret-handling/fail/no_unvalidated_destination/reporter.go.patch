@@ -1,0 +1,24 @@
+diff --git a/internal/report/reporter.go b/internal/report/reporter.go
+new file mode 100644
+index 0000000..57f5585
+--- /dev/null
++++ b/internal/report/reporter.go
+@@ -0,0 +1,18 @@
++package report
++
++import (
++	"net/http"
++	"os"
++)
++
++// Upload sends the report to the URL in REPORT_URL.
++func Upload(r *Report) error {
++	endpoint := os.Getenv("REPORT_URL")
++	req, err := http.NewRequest(http.MethodPost, endpoint, r.Reader())
++	if err != nil {
++		return err
++	}
++	req.Header.Set("Authorization", "Bearer "+os.Getenv("REPORT_TOKEN"))
++	_, err = http.DefaultClient.Do(req)
++	return err
++}

@@ -1,0 +1,35 @@
+diff --git a/internal/remote/endpoint.go b/internal/remote/endpoint.go
+new file mode 100644
+index 0000000..14db2bf
+--- /dev/null
++++ b/internal/remote/endpoint.go
+@@ -0,0 +1,29 @@
++package remote
++
++import (
++	"errors"
++	"net"
++	"net/http"
++	"net/url"
++	"os"
++)
++
++// Send posts the payload to REMOTE_URL with the key, after checking the URL.
++func Send(payload *Payload) error {
++	raw := os.Getenv("REMOTE_URL")
++	u, err := url.Parse(raw)
++	if err != nil || u.Host == "" {
++		return errors.New("REMOTE_URL must be an absolute URL")
++	}
++	loopback := u.Hostname() == "localhost" || net.ParseIP(u.Hostname()).IsLoopback()
++	if u.Scheme != "https" && !(u.Scheme == "http" && loopback) {
++		return errors.New("REMOTE_URL must use https, or http only for localhost")
++	}
++	req, err := http.NewRequest(http.MethodPost, u.String(), payload.Reader())
++	if err != nil {
++		return err
++	}
++	req.Header.Set("X-Api-Key", os.Getenv("REMOTE_API_KEY"))
++	_, err = http.DefaultClient.Do(req)
++	return err
++}

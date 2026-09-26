@@ -1,0 +1,23 @@
+diff --git a/internal/api/client.go b/internal/api/client.go
+new file mode 100644
+index 0000000..46dff30
+--- /dev/null
++++ b/internal/api/client.go
+@@ -0,0 +1,17 @@
++package api
++
++import (
++	"log"
++	"os"
++)
++
++// NewClient reads the key from the environment and reports only whether it is set.
++func NewClient() (*Client, error) {
++	apiKey := os.Getenv("SERVICE_API_KEY")
++	if apiKey == "" {
++		log.Printf("SERVICE_API_KEY is not set; requests will be anonymous")
++		return &Client{}, nil
++	}
++	log.Printf("loaded SERVICE_API_KEY (%d characters)", len(apiKey))
++	return &Client{apiKey: apiKey}, nil
++}

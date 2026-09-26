@@ -1,0 +1,14 @@
+diff --git a/src/http/headers.js b/src/http/headers.js
+new file mode 100644
+index 0000000..51be97e
+--- /dev/null
++++ b/src/http/headers.js
+@@ -0,0 +1,8 @@
++export function buildHeaders(token) {
++  const headers = {
++    Accept: "application/json",
++    Authorization: `Bearer ${token}`,
++  };
++  console.debug("request headers set:", Object.keys(headers).join(", "));
++  return headers;
++}

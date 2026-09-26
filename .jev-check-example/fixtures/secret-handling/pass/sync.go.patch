@@ -1,0 +1,12 @@
+diff --git a/cmd/sync.go b/cmd/sync.go
+index b7751d2..29a9ad2 100644
+--- a/cmd/sync.go
++++ b/cmd/sync.go
+@@ -7,7 +7,6 @@ import (
+ 
+ func run() error {
+ 	token := os.Getenv("SYNC_TOKEN")
+-	log.Printf("sync token: %s", token)
+ 	if token == "" {
+ 		return errMissingToken
+ 	}

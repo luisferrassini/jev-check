@@ -1,0 +1,25 @@
+diff --git a/internal/billing/billing.go b/internal/billing/billing.go
+new file mode 100644
+index 0000000..1692bce
+--- /dev/null
++++ b/internal/billing/billing.go
+@@ -0,0 +1,19 @@
++package billing
++
++import (
++	"log"
++	"net/http"
++)
++
++const chargeURL = "https://billing.example.com/v1/charges"
++
++func (c *Client) Charge(amount int) error {
++	log.Printf("charging %d with api key %s", amount, c.apiKey)
++	req, err := http.NewRequest(http.MethodPost, chargeURL, amountBody(amount))
++	if err != nil {
++		return err
++	}
++	req.Header.Set("X-Api-Key", c.apiKey)
++	_, err = http.DefaultClient.Do(req)
++	return err
++}

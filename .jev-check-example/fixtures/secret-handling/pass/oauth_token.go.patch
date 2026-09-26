@@ -1,0 +1,25 @@
+diff --git a/auth/oauth.go b/auth/oauth.go
+new file mode 100644
+index 0000000..b321261
+--- /dev/null
++++ b/auth/oauth.go
+@@ -0,0 +1,19 @@
++package auth
++
++import (
++	"net/http"
++	"net/url"
++	"strings"
++)
++
++const tokenURL = "https://login.example.com/oauth2/token"
++
++// FetchToken exchanges the client credentials for an access token.
++func FetchToken(clientID, clientSecret string) (*http.Response, error) {
++	form := url.Values{
++		"grant_type":    {"client_credentials"},
++		"client_id":     {clientID},
++		"client_secret": {clientSecret},
++	}
++	return http.Post(tokenURL, "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
++}

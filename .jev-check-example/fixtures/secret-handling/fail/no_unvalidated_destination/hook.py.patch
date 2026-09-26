@@ -1,0 +1,23 @@
+diff --git a/tools/hook.py b/tools/hook.py
+new file mode 100644
+index 0000000..a71fa86
+--- /dev/null
++++ b/tools/hook.py
+@@ -0,0 +1,17 @@
++import argparse
++import os
++
++import requests
++
++
++def main() -> None:
++    parser = argparse.ArgumentParser()
++    parser.add_argument("--webhook", required=True, help="URL to notify")
++    parser.add_argument("message")
++    args = parser.parse_args()
++    api_key = os.environ["HOOK_API_KEY"]
++    requests.post(args.webhook, json={"text": args.message}, headers={"X-Api-Key": api_key}, timeout=10)
++
++
++if __name__ == "__main__":
++    main()
