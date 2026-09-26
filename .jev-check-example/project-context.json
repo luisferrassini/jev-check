@@ -10,7 +10,7 @@
     ".": "One Go binary, jev-check. ask.go lists and asks checks and embeds the bundled ones, context.go builds the project state and holds init, settings.go reads .jev-check/.env and holds doctor, secrets.go scans patches and every outgoing request locally, judge.go applies thresholds, gate.go runs the checks on staged files, eval.go tests thresholds on fixtures. The *_test.go files test them offline with a fake Jev server, in temp folders, and passes paths like ../x to check that they are refused.",
     ".jev-check-example/input/questions": "One check per file, built into the binary. This repository's own .jev-check/ is ignored; for local work it links here, so edits apply without a rebuild. example.json is the first check a new user runs.",
     ".jev-check-example/input/states": "Optional fixed state per check. example.json holds a short script with two deliberate flaws for the example check to find.",
-    ".claude/skills/jev-check": "Tells an agent how to use the tool.",
+    "skills/jev-check": "Tells an agent how to use the tool.",
     ".github/workflows": "ci.yml runs gofmt, go vet, the offline tests, the build, and a few local commands on every pull request, with no secrets.",
     "CODING_STYLE.md": "The coding rules for this repository's Go code, read by people and by the opt-in coding-style check.",
     ".jev-check-example/fixtures": "Known pass and fail patches that set each check's threshold. Excluded from the gate."

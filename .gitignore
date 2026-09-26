@@ -3,3 +3,9 @@ __pycache__/
 /jev-check
 .sbx-configs
 .jev-check
+
+.claude
+.agents
+
+specs
+research

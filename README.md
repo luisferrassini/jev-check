@@ -244,7 +244,7 @@ Older versions read `input/`, `.env`, and `output/` from the binary's folder. To
 
 ## Use it from an agent
 
-[`.claude/skills/jev-check/SKILL.md`](.claude/skills/jev-check/SKILL.md) is the one source of the agent skill. It tells an agent to stage only its own changes, run `jev-check gate <project>`, act on each result, and stop after three runs. Install the `jev-check` binary first (see [Install jev-check](#2-install-jev-check)): the skill uses the one on `PATH`, or a path you give the agent.
+[`skills/jev-check/SKILL.md`](skills/jev-check/SKILL.md) is the one source of the agent skill. It tells an agent to stage only its own changes, run `jev-check gate <project>`, act on each result, and stop after three runs. Install the `jev-check` binary first (see [Install jev-check](#2-install-jev-check)): the skill uses the one on `PATH`, or a path you give the agent.
 
 Copy the skill into the project where the agent works. Pick the folder your agent reads project skills from:
 
@@ -257,7 +257,7 @@ Copy the skill into the project where the agent works. Pick the folder your agen
 Run this from the root of your project, with `src` pointing at this repository's copy (Bash):
 
 ```bash
-src='<jev-check checkout>/.claude/skills/jev-check/SKILL.md'
+src='<jev-check checkout>/skills/jev-check/SKILL.md'
 dst='.claude/skills/jev-check/SKILL.md'
 if [ -e "$dst" ]; then diff -u "$dst" "$src"; else mkdir -p "$(dirname "$dst")" && cp "$src" "$dst"; fi
 ```
