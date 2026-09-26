@@ -15,8 +15,9 @@ import (
 const evalUsage = `Usage: jev-check eval <check> [DIR] [--no-cache]   (default DIR: .)
 Tests a check's thresholds in DIR/project-context.json against DIR/fixtures/<check>/:
 every patch in pass/ must pass every question, and every patch in fail/<question>/
-must fail that question. Answers share the gate's cache.
-Exit 0 no misses, 1 a miss, 2 usage or API error.
+must fail that question. Answers share the gate's cache. Every request is scanned
+for secrets before any is sent.
+Exit 0 no misses, 1 a miss or a secret found, 2 usage or API error.
 `
 
 func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
@@ -72,19 +73,34 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 		}
 	}
 
-	ask := func(path string) (response, error) {
+	// Build and scan every request before the first cache lookup or API call,
+	// so a bad fixture late in the list never lets earlier ones through.
+	reqs := map[string]request{}
+	var blocked []string
+	for _, path := range append(slices.Clone(pass), fail...) {
 		patch, err := os.ReadFile(path)
 		if err != nil {
-			return response{}, err
+			return 0, err
 		}
 		// The patch is sent under its own file name, as the gate sends it, so the fixture folder never reaches Jev.
 		file, ok := patchFile(string(patch))
 		if !ok {
-			return response{}, fmt.Errorf("%s has no +++ b/<path> line", path)
+			return 0, fmt.Errorf("%s has no +++ b/<path> line", path)
 		}
 		fileState := maps.Clone(state)
 		fileState["files"] = map[string]string{file + ".patch": string(patch)}
-		res, _, err := cachedJev(dir, name, request{Model: defaultModel, Questions: questions[0], State: fileState}, noCache, stderr)
+		reqs[path] = request{Model: defaultModel, Questions: questions[0], State: fileState}
+		if err := scanRequest(reqs[path]); err != nil {
+			rel, _ := filepath.Rel(fixtures, path)
+			blocked = append(blocked, fmt.Sprintf("== %s\n%v", safeLabel(rel, "a fixture"), err))
+		}
+	}
+	if blocked != nil {
+		fmt.Fprintf(stdout, "%s\neval: BLOCKED, a fixture looks like it holds a secret; nothing was sent\n", strings.Join(blocked, "\n"))
+		return 1, nil
+	}
+	ask := func(path string) (response, error) {
+		res, _, err := cachedJev(dir, name, reqs[path], noCache, stderr)
 		return res, err
 	}
 	limit := func(q string) float64 {

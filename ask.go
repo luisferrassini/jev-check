@@ -34,7 +34,10 @@ Options:
   --model ID     model to use (default: jev-latest)
   --dry-run      print the request and exit, without calling the API
 
-Exit codes: 0 ok, 1 below threshold, 2 usage or API error.
+Before anything is printed or sent, the whole request is scanned for secrets.
+A finding prints SECRET lines instead, and nothing is sent or saved.
+
+Exit codes: 0 ok, 1 below threshold or a secret found, 2 usage or API error.
 `
 
 // endpoint is a variable so tests can point it at a fake server.
@@ -200,6 +203,9 @@ func askCmd(args []string, stdout, _ io.Writer) (int, error) {
 	}
 
 	req := request{Model: model, Questions: questions, State: state}
+	if err := scanRequest(req); err != nil {
+		return 0, err
+	}
 	if dryRun {
 		return 0, writeJSON(stdout, req)
 	}
@@ -337,6 +343,10 @@ func validateAnswers(answers map[string]answer, questions map[string]json.RawMes
 // It returns the response and the absolute saved path.
 func callJev(project, name string, req request) (response, string, error) {
 	var res response
+	// Every path to the API passes here, so nothing that looks like a secret is sent.
+	if err := scanRequest(req); err != nil {
+		return res, "", err
+	}
 	key, err := apiKey(project)
 	if err != nil {
 		return res, "", err

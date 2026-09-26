@@ -19,7 +19,10 @@ const gateUsage = `Usage: jev-check gate [DIR] [--no-cache]   (default: .)
 Sends one patch per staged file to each check in DIR/project-context.json.
 Answers are cached in DIR/output/cache/ by model, questions, project, and patch,
 so an unchanged file is not sent twice. --no-cache always calls the API.
-Exit 0 pass, 1 fail, 2 usage or API error.
+Every request is scanned for secrets first. A secret in the project fields or
+tree stops the gate; one in a check's questions skips that check; one in a
+patch skips that file.
+Exit 0 pass, 1 fail or a secret found, 2 usage or API error.
 `
 
 // gateCheck is one entry of "checks" in project-context.json.
@@ -63,17 +66,34 @@ func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	// Shared content goes with every request, so a secret there stops the gate before any request.
+	if err := scanRequest(request{Model: defaultModel, State: state}); err != nil {
+		fmt.Fprintf(stdout, "%v\ngate: FAIL\n", err)
+		return 1, nil
+	}
+	// status keeps the worst result: 1 when a check fails or a secret is found, 2 on an error.
+	status := 0
+	// A check whose questions look like they hold a secret is skipped; the others still run.
+	blocked := map[int]bool{}
+	for i, c := range p.Checks {
+		if err := scanRequest(request{Questions: questions[i]}); err != nil {
+			fmt.Fprintf(stdout, "== %s questions\n%v\n", c.Check, err)
+			blocked[i], status = true, 1
+		}
+	}
 	files, err := stagedFiles(dir, p.Exclude)
 	if err != nil {
 		return 0, err
 	}
-	if len(files) == 0 {
+	if len(files) == 0 && status == 0 {
 		fmt.Fprintln(stdout, "nothing staged")
 		return 0, nil
 	}
+	// label names a file in output, unless its name could leak a secret or forge a line.
+	label := func(file string) string {
+		return safeLabel(file, fmt.Sprintf("staged file %d", slices.Index(files, file)+1))
+	}
 
-	// status keeps the worst result: 1 when a check fails, 2 on an error.
-	status := 0
 	patches := map[string]string{}
 	for _, file := range files {
 		patch, err := git(dir, "diff", "--cached", "--relative", "--", ":(literal)"+file)
@@ -81,7 +101,7 @@ func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 			return 0, err
 		}
 		// A patch that looks like it holds a secret is never sent.
-		if reports := scanSecrets(file+".patch", patch); reports != nil {
+		if reports := secretReports(label(file)+".patch", patch, true); reports != nil {
 			for _, report := range reports {
 				fmt.Fprintln(stdout, report)
 			}
@@ -92,6 +112,9 @@ func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	}
 
 	for i, c := range p.Checks {
+		if blocked[i] {
+			continue
+		}
 		checkFiles, err := stagedFiles(dir, append(slices.Clone(p.Exclude), c.Skip...))
 		if err != nil {
 			return 0, err
@@ -105,13 +128,19 @@ func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 			fileState := maps.Clone(state)
 			fileState["files"] = map[string]string{file + ".patch": patch}
 			res, cached, err := cachedJev(dir, c.Check, request{Model: defaultModel, Questions: questions[i], State: fileState}, noCache, stderr)
-			if err != nil {
-				fmt.Fprintf(stdout, "== %s %s\n", c.Check, file)
+			var found secretsFound
+			switch {
+			case errors.As(err, &found):
+				fmt.Fprintf(stdout, "== %s %s\n%v\n", c.Check, label(file), found)
+				status = max(status, 1)
+				continue
+			case err != nil:
+				fmt.Fprintf(stdout, "== %s %s\n", c.Check, label(file))
 				fmt.Fprintf(stderr, "jev-check gate: %v\n", err)
 				status = 2
 				continue
 			}
-			fmt.Fprintf(stdout, "== %s %s%s\n", c.Check, file, map[bool]string{true: " (cached)"}[cached])
+			fmt.Fprintf(stdout, "== %s %s%s\n", c.Check, label(file), map[bool]string{true: " (cached)"}[cached])
 			if printVerdicts(stdout, res.Answers, *c.Threshold, c.PerQuestion) {
 				status = max(status, 1)
 			}
@@ -127,6 +156,10 @@ func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 // The tree is left out of the key, so adding a file does not miss the cache for the others.
 // Thresholds are not in the key either: the gate judges cached answers again on every run.
 func cachedJev(project, name string, req request, noCache bool, stderr io.Writer) (response, bool, error) {
+	// Scan before the cache, so an old answer never hides a secret.
+	if err := scanRequest(req); err != nil {
+		return response{}, false, err
+	}
 	keyState := maps.Clone(req.State)
 	delete(keyState, "tree")
 	key, err := json.Marshal(request{Model: req.Model, Questions: req.Questions, State: keyState})
