@@ -1,0 +1,24 @@
+diff --git a/scripts/resize.py b/scripts/resize.py
+new file mode 100644
+index 0000000..cbae2a7
+--- /dev/null
++++ b/scripts/resize.py
+@@ -0,0 +1,18 @@
++import argparse
++
++from images import resize_all
++
++
++def main():
++    parser = argparse.ArgumentParser(description="Resize every image in a folder.")
++    parser.add_argument("folder", help="folder that holds the images")
++    parser.add_argument("--width", type=int, default=800, help="target width in pixels (default: 800)")
++    parser.add_argument("--quality", type=int, default=85, help="JPEG quality from 1 to 100 (default: 85)")
++    parser.add_argument("--dry-run", action="store_true", help="list the files without changing them")
++    args = parser.parse_args()
++    for path in resize_all(args.folder, args.width, args.quality, write=not args.dry_run):
++        print(path)
++
++
++if __name__ == "__main__":
++    main()

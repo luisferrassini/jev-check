@@ -1,0 +1,25 @@
+diff --git a/tool/cli.py b/tool/cli.py
+index c59817f..4d63f9a 100644
+--- a/tool/cli.py
++++ b/tool/cli.py
+@@ -2,9 +2,19 @@ import argparse
+ 
+ from tool import backup, restore
+ 
++EPILOG = """
++examples:
++  tool backup --incremental /data
++  tool restore --at 2024-01-01 /data
++"""
++
+ 
+ def build_parser():
+-    parser = argparse.ArgumentParser(prog="tool")
++    parser = argparse.ArgumentParser(
++        prog="tool",
++        epilog=EPILOG,
++        formatter_class=argparse.RawDescriptionHelpFormatter,
++    )
+     sub = parser.add_subparsers(dest="command", required=True)
+     backup.register(sub)
+     restore.register(sub)

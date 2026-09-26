@@ -1,0 +1,35 @@
+diff --git a/clean.go b/clean.go
+new file mode 100644
+index 0000000..f985e08
+--- /dev/null
++++ b/clean.go
+@@ -0,0 +1,29 @@
++package main
++
++import (
++	"flag"
++	"fmt"
++	"os"
++	"path/filepath"
++)
++
++func main() {
++	verbose := flag.Bool("verbose", false, "print each file as it is removed")
++	pattern := flag.String("pattern", "*.tmp", "glob of files to remove")
++	flag.Usage = func() {
++		fmt.Fprintln(os.Stderr, "Usage: clean [--verbose] [--pattern GLOB]")
++		flag.PrintDefaults()
++	}
++	flag.Parse()
++	matches, err := filepath.Glob(*pattern)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, err)
++		os.Exit(2)
++	}
++	for _, m := range matches {
++		if *verbose {
++			fmt.Println("removing", m)
++		}
++		os.Remove(m)
++	}
++}

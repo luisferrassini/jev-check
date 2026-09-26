@@ -1,0 +1,25 @@
+diff --git a/delete_item.go b/delete_item.go
+index 27f1e8e..282dbe6 100644
+--- a/delete_item.go
++++ b/delete_item.go
+@@ -5,8 +5,9 @@ import (
+ 	"os"
+ )
+ 
+-const deleteUsage = `Usage: tool delete [--yes] NAME
++const deleteUsage = `Usage: tool delete [--yes] [--force] NAME
+ Deletes the item NAME. Asks first unless --yes is given.
++--force also deletes an item that is locked.
+ `
+ 
+ func deleteCmd(args []string) error {
+@@ -18,6 +19,9 @@ func deleteCmd(args []string) error {
+ 		case "--force":
+ 			force = true
+ 		default:
++			if name != "" {
++				return fmt.Errorf("expected one NAME")
++			}
+ 			name = arg
+ 		}
+ 	}

@@ -1,0 +1,13 @@
+diff --git a/internal/cli/root.go b/internal/cli/root.go
+index b574302..68596b3 100644
+--- a/internal/cli/root.go
++++ b/internal/cli/root.go
+@@ -5,4 +5,8 @@ const rootHelp = `Usage: tool <command> [options]
+ Commands:
+   init     create a config file
+   status   show the current state
++  sync     pull changes from the remote
++  prune    delete local branches that are gone upstream
++
++Run "tool <command> --help" for the options of one command.
+ `

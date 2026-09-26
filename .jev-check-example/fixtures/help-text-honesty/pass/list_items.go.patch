@@ -1,0 +1,44 @@
+diff --git a/list_items.go b/list_items.go
+index f638000..95fcf87 100644
+--- a/list_items.go
++++ b/list_items.go
+@@ -6,12 +6,13 @@ import (
+ 	"io"
+ )
+ 
+-const listUsage = `Usage: tool list [--all]
++const listUsage = `Usage: tool list [--all] [--json]
+ Prints the items, one per line. --all includes archived items.
++--json prints them as one JSON array instead.
+ `
+ 
+ func listCmd(args []string, out io.Writer, items []Item) error {
+-	all := false
++	all, asJSON := false, false
+ 	for _, arg := range args {
+ 		switch arg {
+ 		case "-h", "--help":
+@@ -19,14 +20,23 @@ func listCmd(args []string, out io.Writer, items []Item) error {
+ 			return nil
+ 		case "--all":
+ 			all = true
++		case "--json":
++			asJSON = true
+ 		default:
+ 			return fmt.Errorf("unknown option %s", arg)
+ 		}
+ 	}
++	var shown []Item
+ 	for _, it := range items {
+ 		if it.Archived && !all {
+ 			continue
+ 		}
++		shown = append(shown, it)
++	}
++	if asJSON {
++		return json.NewEncoder(out).Encode(shown)
++	}
++	for _, it := range shown {
+ 		fmt.Fprintln(out, it.Name)
+ 	}
+ 	return nil

@@ -1,0 +1,48 @@
+diff --git a/rename_files.go b/rename_files.go
+new file mode 100644
+index 0000000..5dd472d
+--- /dev/null
++++ b/rename_files.go
+@@ -0,0 +1,42 @@
++package main
++
++import (
++	"fmt"
++	"os"
++)
++
++const renameUsage = `Usage: tool rename [--dry-run] FROM TO
++Renames every file whose name contains FROM.
++--dry-run prints each new name and changes nothing on disk.
++`
++
++func renameCmd(args []string) error {
++	dry := false
++	var rest []string
++	for _, arg := range args {
++		switch arg {
++		case "--dry-run":
++			dry = true
++		default:
++			rest = append(rest, arg)
++		}
++	}
++	if len(rest) != 2 {
++		return fmt.Errorf("expected FROM and TO")
++	}
++	for _, p := range matching(rest[0]) {
++		np := newName(p, rest[0], rest[1])
++		fmt.Println(p, "->", np)
++		if dry {
++			// Rename in dry-run mode too, so the listing is always accurate.
++			if err := os.Rename(p, np); err != nil {
++				return err
++			}
++			continue
++		}
++		if err := os.Rename(p, np); err != nil {
++			return err
++		}
++	}
++	return nil
++}

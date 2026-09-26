@@ -1,0 +1,38 @@
+diff --git a/report.go b/report.go
+new file mode 100644
+index 0000000..eb23c7f
+--- /dev/null
++++ b/report.go
+@@ -0,0 +1,32 @@
++package main
++
++import (
++	"encoding/json"
++	"fmt"
++	"io"
++)
++
++const reportUsage = `Usage: tool report [--json] [--verbose]
++Prints a summary of the last run. --json prints it as JSON.
++--verbose adds one line per test.
++`
++
++func reportCmd(args []string, out io.Writer, r Run) error {
++	asJSON := false
++	for _, arg := range args {
++		switch arg {
++		case "-h", "--help":
++			fmt.Fprint(out, reportUsage)
++			return nil
++		case "--json":
++			asJSON = true
++		default:
++			return fmt.Errorf("unknown option %s (see --help)", arg)
++		}
++	}
++	if asJSON {
++		return json.NewEncoder(out).Encode(r.Summary())
++	}
++	fmt.Fprintf(out, "%d passed, %d failed\n", r.Passed, r.Failed)
++	return nil
++}

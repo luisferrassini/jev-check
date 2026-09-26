@@ -1,0 +1,13 @@
+diff --git a/status.go b/status.go
+index d981dbd..229369d 100644
+--- a/status.go
++++ b/status.go
+@@ -1,7 +1,7 @@
+ package main
+ 
+ const statusUsage = `Usage: tool status
+-Shows status.
++Shows the state of each tracked folder: clean, changed, or missing.
+ `
+ 
+ func unrelated() {}

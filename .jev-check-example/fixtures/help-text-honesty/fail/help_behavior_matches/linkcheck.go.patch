@@ -1,0 +1,32 @@
+diff --git a/linkcheck.go b/linkcheck.go
+new file mode 100644
+index 0000000..0b6ee37
+--- /dev/null
++++ b/linkcheck.go
+@@ -0,0 +1,26 @@
++package main
++
++import (
++	"fmt"
++	"os"
++)
++
++const linkUsage = `Usage: linkcheck FILE...
++Checks every link in the files.
++Exit status: 0 when every link works, 1 when a link is broken.
++`
++
++func main() {
++	if len(os.Args) < 2 {
++		fmt.Fprint(os.Stderr, linkUsage)
++		os.Exit(2)
++	}
++	broken := 0
++	for _, f := range os.Args[1:] {
++		broken += checkFile(f)
++	}
++	if broken > 0 {
++		fmt.Fprintf(os.Stderr, "%d broken links\n", broken)
++		os.Exit(4)
++	}
++}

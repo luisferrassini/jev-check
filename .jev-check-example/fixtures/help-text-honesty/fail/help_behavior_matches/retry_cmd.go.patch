@@ -1,0 +1,28 @@
+diff --git a/retry_cmd.go b/retry_cmd.go
+new file mode 100644
+index 0000000..7727900
+--- /dev/null
++++ b/retry_cmd.go
+@@ -0,0 +1,22 @@
++package main
++
++import (
++	"flag"
++	"fmt"
++	"os"
++)
++
++const retryUsage = `Usage: tool push [--retries N]
++Uploads the build. On a network error it tries again, up to N times
++(default 3).
++`
++
++func pushCmd(args []string) error {
++	fs := flag.NewFlagSet("push", flag.ContinueOnError)
++	fs.Usage = func() { fmt.Fprint(os.Stderr, retryUsage) }
++	retries := fs.Int("retries", 5, "")
++	if err := fs.Parse(args); err != nil {
++		return err
++	}
++	return upload(*retries)
++}

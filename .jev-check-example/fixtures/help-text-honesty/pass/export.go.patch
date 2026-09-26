@@ -1,0 +1,33 @@
+diff --git a/export.go b/export.go
+index 243e7c1..64d99b2 100644
+--- a/export.go
++++ b/export.go
+@@ -2,19 +2,16 @@ package main
+ 
+ import "fmt"
+ 
+-const exportUsage = `Usage: tool export [--gzip] [--legacy] FILE
++const exportUsage = `Usage: tool export [--gzip] FILE
+ Writes all records to FILE. --gzip compresses it.
+---legacy writes the old v1 format.
+ `
+ 
+ func exportCmd(args []string) error {
+-	gzip, legacy, file := false, false, ""
++	gzip, file := false, ""
+ 	for _, arg := range args {
+ 		switch arg {
+ 		case "--gzip":
+ 			gzip = true
+-		case "--legacy":
+-			legacy = true
+ 		default:
+ 			file = arg
+ 		}
+@@ -22,5 +19,5 @@ func exportCmd(args []string) error {
+ 	if file == "" {
+ 		return fmt.Errorf("missing FILE")
+ 	}
+-	return writeRecords(file, gzip, legacy)
++	return writeRecords(file, gzip)
+ }

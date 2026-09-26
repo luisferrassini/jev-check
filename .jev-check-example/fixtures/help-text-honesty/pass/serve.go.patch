@@ -1,0 +1,15 @@
+diff --git a/cmd/serve.go b/cmd/serve.go
+index b9ea2b7..cffebb4 100644
+--- a/cmd/serve.go
++++ b/cmd/serve.go
+@@ -7,8 +7,8 @@ import (
+ 	"os"
+ )
+ 
+-const serveUsage = `Usage: tool serve [--root DIR]
+-Serves the files in DIR over HTTP.
++const serveUsage = `Usage: tool serve [--root DIR] [--port N]
++Serves the files in DIR over HTTP on port N (default 8080).
+ `
+ 
+ func helper1() {}

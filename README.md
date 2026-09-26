@@ -44,7 +44,7 @@ jev-check list
 jev-check ask example --dry-run
 ```
 
-`list` shows the bundled checks: `coding-style`, `example`, `maintainability`, `no-leftovers`, `public-release`, `secret-handling`, and `test-quality`. `ask example --dry-run` prints the request it would send, as JSON with `model`, `questions`, and `state`, and exits 0. Nothing is sent, so this is a preview, not a judgment of the sample script.
+`list` shows the bundled checks: `coding-style`, `example`, `help-text-honesty`, `maintainability`, `no-leftovers`, `public-release`, `secret-handling`, and `test-quality`. `ask example --dry-run` prints the request it would send, as JSON with `model`, `questions`, and `state`, and exits 0. Nothing is sent, so this is a preview, not a judgment of the sample script.
 
 ### 4. Make a practice repository
 
@@ -402,6 +402,13 @@ Removed code, untouched context, non-test files, and documentation pass. The che
 - `no_unvalidated_destination`: no new code sends a credential to a URL that the patch shows comes from outside the code, such as an environment variable, a flag, a config file, or a response, with no visible scheme or host check. Constant https URLs, loopback http, URLs checked before the send, validated config types, and parameters whose origin the patch does not show are accepted.
 
 It finds credentials by name and use, not by value, so it does not replace the [secret scan](#secret-scan). To enable it, add `{ "check": "secret-handling", "threshold": 0.5 }` to `checks`. The scores behind the threshold are in [`.jev-check-example/fixtures/secret-handling/CALIBRATION.md`](.jev-check-example/fixtures/secret-handling/CALIBRATION.md). To evaluate it, use the disposable project from [Evaluating an opt-in check](#evaluating-an-opt-in-check) with `.jev-check-example/fixtures/secret-handling`, no `CODING_STYLE.md`, and `{"check":"secret-handling","threshold":0.5}`.
+
+`help-text-honesty` is opt-in. It makes two judgments about usage and help text in one patch:
+
+- `help_flags_exist`: every flag the text names is handled in the same file.
+- `help_behavior_matches`: every default, exit status, or mode behavior the text claims matches the code.
+
+It fails only when the patch itself shows the mismatch, such as a whole argument parser with no such flag. When the parser or the code is not visible, the file passes, and so do documentation and files with no help text. A pass does not mean the help is complete. To enable it, add `{ "check": "help-text-honesty", "threshold": 0.47 }` to `checks`. The scores behind the threshold are in [`.jev-check-example/fixtures/help-text-honesty/CALIBRATION.md`](.jev-check-example/fixtures/help-text-honesty/CALIBRATION.md). To evaluate it, use the disposable project from [Evaluating an opt-in check](#evaluating-an-opt-in-check) with `.jev-check-example/fixtures/help-text-honesty`, no `CODING_STYLE.md`, and `{"check":"help-text-honesty","threshold":0.47}`.
 
 `example` is a first check to try. It runs on a bundled script, so it needs no `--file`.
 

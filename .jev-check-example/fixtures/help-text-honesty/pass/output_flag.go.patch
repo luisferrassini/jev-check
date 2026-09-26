@@ -1,0 +1,30 @@
+diff --git a/output_flag.go b/output_flag.go
+new file mode 100644
+index 0000000..5dbc2db
+--- /dev/null
++++ b/output_flag.go
+@@ -0,0 +1,24 @@
++package main
++
++import (
++	"flag"
++	"fmt"
++	"os"
++)
++
++const buildUsage = `Usage: build [-o FILE | --output FILE] [--tags LIST]
++Builds the project. The output goes to FILE (default: ./out/app).
++`
++
++func buildCmd(args []string) error {
++	fs := flag.NewFlagSet("build", flag.ContinueOnError)
++	fs.Usage = func() { fmt.Fprint(os.Stderr, buildUsage) }
++	var out, tags string
++	fs.StringVar(&out, "o", "./out/app", "output file")
++	fs.StringVar(&out, "output", "./out/app", "output file")
++	fs.StringVar(&tags, "tags", "", "comma-separated build tags")
++	if err := fs.Parse(args); err != nil {
++		return err
++	}
++	return build(out, tags)
++}

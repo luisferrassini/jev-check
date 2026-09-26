@@ -1,0 +1,33 @@
+diff --git a/tools/tail_log.py b/tools/tail_log.py
+new file mode 100644
+index 0000000..eb20928
+--- /dev/null
++++ b/tools/tail_log.py
+@@ -0,0 +1,27 @@
++import argparse
++import sys
++
++USAGE_EPILOG = """
++Use --follow to keep reading as the file grows.
++Use --lines N to print only the last N lines.
++"""
++
++
++def main():
++    parser = argparse.ArgumentParser(
++        description="Print a log file.",
++        epilog=USAGE_EPILOG,
++        formatter_class=argparse.RawDescriptionHelpFormatter,
++    )
++    parser.add_argument("path", help="log file to read")
++    parser.add_argument("--lines", type=int, default=0, help="print only the last N lines")
++    args = parser.parse_args()
++    with open(args.path) as f:
++        lines = f.readlines()
++    if args.lines:
++        lines = lines[-args.lines:]
++    sys.stdout.writelines(lines)
++
++
++if __name__ == "__main__":
++    main()

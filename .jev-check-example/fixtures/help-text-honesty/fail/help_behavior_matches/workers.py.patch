@@ -1,0 +1,20 @@
+diff --git a/jobs/run.py b/jobs/run.py
+new file mode 100644
+index 0000000..1bb5a0e
+--- /dev/null
++++ b/jobs/run.py
+@@ -0,0 +1,14 @@
++import argparse
++
++from jobs import run_all
++
++
++def main():
++    parser = argparse.ArgumentParser(description="Run the queued jobs.")
++    parser.add_argument("--workers", type=int, default=8, help="number of jobs to run at once (default: 4)")
++    args = parser.parse_args()
++    run_all(args.workers)
++
++
++if __name__ == "__main__":
++    main()

@@ -1,0 +1,28 @@
+diff --git a/apply_plan.go b/apply_plan.go
+index 7bb5e1a..2eedb96 100644
+--- a/apply_plan.go
++++ b/apply_plan.go
+@@ -3,15 +3,13 @@ package main
+ import "fmt"
+ 
+ func applyCmd(args []string) error {
+-	dry, yes, plan := false, false, ""
++	yes, plan := false, ""
+ 	for _, arg := range args {
+ 		switch arg {
+ 		case "-h", "--help":
+ 			fmt.Println("Usage: tool apply [--dry-run] [--yes] PLAN")
+ 			fmt.Println("--dry-run prints the changes instead of making them.")
+ 			return nil
+-		case "--dry-run":
+-			dry = true
+ 		case "--yes":
+ 			yes = true
+ 		default:
+@@ -21,5 +19,5 @@ func applyCmd(args []string) error {
+ 	if plan == "" {
+ 		return fmt.Errorf("missing PLAN")
+ 	}
+-	return apply(plan, dry, yes)
++	return apply(plan, yes)
+ }

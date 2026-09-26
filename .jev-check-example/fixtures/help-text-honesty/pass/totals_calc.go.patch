@@ -1,0 +1,16 @@
+diff --git a/totals_calc.go b/totals_calc.go
+new file mode 100644
+index 0000000..bea466f
+--- /dev/null
++++ b/totals_calc.go
+@@ -0,0 +1,10 @@
++package report
++
++// Sum returns the total of the amounts, in cents.
++func Sum(amounts []int64) int64 {
++	var total int64
++	for _, a := range amounts {
++		total += a
++	}
++	return total
++}

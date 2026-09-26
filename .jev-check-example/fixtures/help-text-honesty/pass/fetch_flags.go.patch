@@ -1,0 +1,12 @@
+diff --git a/fetch_flags.go b/fetch_flags.go
+index aa71ff5..088c642 100644
+--- a/fetch_flags.go
++++ b/fetch_flags.go
+@@ -6,5 +6,6 @@ import (
+ )
+ 
+ var (
+-	url = flag.String("url", "", "address to fetch")
++	url     = flag.String("url", "", "address to fetch")
++	timeout = flag.Duration("timeout", 30*time.Second, "give up after this long (default 30s)")
+ )

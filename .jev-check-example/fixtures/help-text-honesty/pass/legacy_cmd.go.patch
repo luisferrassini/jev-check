@@ -1,0 +1,24 @@
+diff --git a/legacy_cmd.go b/legacy_cmd.go
+deleted file mode 100644
+index b5dfede..0000000
+--- a/legacy_cmd.go
++++ /dev/null
+@@ -1,18 +0,0 @@
+-package main
+-
+-import "fmt"
+-
+-const legacyUsage = `Usage: tool legacy [--v1] [--fast]
+-Runs the old importer.
+-`
+-
+-func legacyCmd(args []string) error {
+-	for _, arg := range args {
+-		switch arg {
+-		case "--v1":
+-		default:
+-			return fmt.Errorf("unknown option %s", arg)
+-		}
+-	}
+-	return nil
+-}

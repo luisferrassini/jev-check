@@ -1,0 +1,12 @@
+diff --git a/README.md b/README.md
+index 423a16c..73286e2 100644
+--- a/README.md
++++ b/README.md
+@@ -2,4 +2,6 @@
+ 
+ ## Usage
+ 
+-    tool list [--all]
++    tool list [--all] [--json] [--since DATE]
++
++`--since DATE` shows only items changed after DATE. `--json` prints JSON.
