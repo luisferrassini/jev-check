@@ -1,0 +1,12 @@
+diff --git a/README.md b/README.md
+index a94ed40..1c3ab6c 100644
+--- a/README.md
++++ b/README.md
+@@ -1,3 +1,7 @@
+ # tool
+ 
+ Run `tool check` in a project folder.
++
++## Settings
++
++`settings.json` in the project folder can set `endpoint` and `retries`. A missing file means the defaults.

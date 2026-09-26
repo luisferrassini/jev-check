@@ -18,9 +18,9 @@ import (
 )
 
 const evalUsage = `Usage: jev-check eval <check> [DIR] [--no-cache] [--model ID]   (default DIR: .)
-Tests a check's thresholds in DIR/project-context.json against DIR/fixtures/<check>/:
-every patch in pass/ must pass every yes/no question, and every patch in
-fail/<question>/ must fail that question. pass/ and fail/<question>/ for every
+Tests a check's thresholds in DIR/.jev-check/project-context.json against
+DIR/.jev-check/fixtures/<check>/: every patch in pass/ must pass every yes/no
+question, and every patch in fail/<question>/ must fail that question. pass/ and fail/<question>/ for every
 yes/no question each need at least one patch. A probability at or above the
 threshold passes.
 
@@ -76,7 +76,7 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	}
 	i := slices.IndexFunc(p.Checks, func(c gateCheck) bool { return c.Check == name })
 	if i < 0 {
-		return 0, fmt.Errorf("%s has no check %s", filepath.Join(dir, "project-context.json"), name)
+		return 0, fmt.Errorf("%s has no check %s", configPath(dir), name)
 	}
 	c := p.Checks[i]
 	questions, err := validateChecks(dir, []gateCheck{c})
@@ -104,7 +104,7 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	fixtures := filepath.Join(dir, "fixtures", name)
+	fixtures := filepath.Join(dir, jevDir, "fixtures", name)
 	jobs, err := findFixtures(fixtures, blocking)
 	if err != nil {
 		return 0, err

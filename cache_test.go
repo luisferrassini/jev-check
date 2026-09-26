@@ -16,7 +16,7 @@ func cacheRepo(t *testing.T, requests *[]request) (string, string) {
 	t.Helper()
 	repo := t.TempDir()
 	gitInit(t, repo)
-	writeFile(t, filepath.Join(repo, "project-context.json"), `{"purpose":"One.","exclude":["input/","*.md"],"checks":[{"check":"public-release","threshold":0.2}]}`)
+	writeFile(t, configPath(repo), `{"purpose":"One.","exclude":[".jev-check/input/","*.md"],"checks":[{"check":"public-release","threshold":0.2}]}`)
 	writeFile(t, filepath.Join(repo, "a.txt"), "a\n")
 	gitRun(t, repo, "add", "a.txt")
 	*requests = nil
@@ -26,7 +26,7 @@ func cacheRepo(t *testing.T, requests *[]request) (string, string) {
 
 func onlyEntry(t *testing.T, repo string) string {
 	t.Helper()
-	entries, err := filepath.Glob(filepath.Join(repo, "output", "cache", "v2", "*.json"))
+	entries, err := filepath.Glob(filepath.Join(repo, ".jev-check", "output", "cache", "v2", "*.json"))
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("cache entries %v, %v", entries, err)
 	}
@@ -74,23 +74,23 @@ func TestCacheIdentity(t *testing.T) {
 	changes := map[string]func(){
 		"tree": func() { writeFile(t, filepath.Join(repo, "new.txt"), "x\n") },
 		"project": func() {
-			writeFile(t, filepath.Join(repo, "project-context.json"), `{"purpose":"Two.","exclude":["input/","*.md"],"checks":[{"check":"public-release","threshold":0.2}]}`)
+			writeFile(t, configPath(repo), `{"purpose":"Two.","exclude":[".jev-check/input/","*.md"],"checks":[{"check":"public-release","threshold":0.2}]}`)
 		},
 		"patch": func() {
 			writeFile(t, filepath.Join(repo, "a.txt"), "b\n")
 			gitRun(t, repo, "add", "a.txt")
 		},
 		"questions": func() {
-			writeFile(t, filepath.Join(repo, "input/questions/public-release.json"), onlyQuestion)
+			writeFile(t, filepath.Join(repo, ".jev-check/input/questions/public-release.json"), onlyQuestion)
 		},
 		"coding style": func() {
 			writeFile(t, filepath.Join(repo, "STYLE.md"), "Rule one.\n")
-			writeFile(t, filepath.Join(repo, "project-context.json"), `{"purpose":"Two.","exclude":["input/","*.md"],"checks":[{"check":"public-release","threshold":0.2,"coding_style":"STYLE.md"}]}`)
+			writeFile(t, configPath(repo), `{"purpose":"Two.","exclude":[".jev-check/input/","*.md"],"checks":[{"check":"public-release","threshold":0.2,"coding_style":"STYLE.md"}]}`)
 		},
 		"coding style content": func() { writeFile(t, filepath.Join(repo, "STYLE.md"), "Rule two.\n") },
 		"coding style path": func() {
 			writeFile(t, filepath.Join(repo, "OTHER.md"), "Rule two.\n")
-			writeFile(t, filepath.Join(repo, "project-context.json"), `{"purpose":"Two.","exclude":["input/","*.md"],"checks":[{"check":"public-release","threshold":0.2,"coding_style":"OTHER.md"}]}`)
+			writeFile(t, configPath(repo), `{"purpose":"Two.","exclude":[".jev-check/input/","*.md"],"checks":[{"check":"public-release","threshold":0.2,"coding_style":"OTHER.md"}]}`)
 		},
 	}
 	for _, name := range []string{"tree", "project", "patch", "questions", "coding style", "coding style content", "coding style path"} {
@@ -115,7 +115,7 @@ func TestCacheIdentity(t *testing.T) {
 	writeSettings(t, repo, fakeSettings)
 
 	// A threshold change judges the cached answers again, without a call.
-	writeFile(t, filepath.Join(repo, "project-context.json"), `{"purpose":"Two.","exclude":["input/","*.md"],"checks":[{"check":"public-release","threshold":0.99,"coding_style":"OTHER.md"}]}`)
+	writeFile(t, configPath(repo), `{"purpose":"Two.","exclude":[".jev-check/input/","*.md"],"checks":[{"check":"public-release","threshold":0.99,"coding_style":"OTHER.md"}]}`)
 	if n, cached := gateCalls(t, requests, 1, repo); n != 0 || !cached {
 		t.Errorf("threshold change sent %d requests, cached %v", n, cached)
 	}
@@ -203,7 +203,7 @@ func TestCacheLifetime(t *testing.T) {
 	}
 
 	// A legacy entry beside v2/ is never read, changed, or removed.
-	legacy := writeFile(t, filepath.Join(repo, "output", "cache", "0123.json"), `{"answers":{}}`)
+	legacy := writeFile(t, filepath.Join(repo, ".jev-check", "output", "cache", "0123.json"), `{"answers":{}}`)
 	gateCalls(t, requests, 0, repo, "--no-cache")
 	if data, _ := os.ReadFile(legacy); string(data) != `{"answers":{}}` {
 		t.Errorf("legacy entry changed: %s", data)
@@ -247,8 +247,8 @@ func TestCacheFailures(t *testing.T) {
 	jevAnswers = ""
 
 	// A cache that cannot be written keeps the live verdict, warns, and calls again next time.
-	os.RemoveAll(filepath.Join(repo, "output", "cache"))
-	writeFile(t, filepath.Join(repo, "output", "cache", "v2"), "not a folder")
+	os.RemoveAll(filepath.Join(repo, ".jev-check", "output", "cache"))
+	writeFile(t, filepath.Join(repo, ".jev-check", "output", "cache", "v2"), "not a folder")
 	for range 2 {
 		before := len(*requests)
 		var stdout, stderr strings.Builder

@@ -18,7 +18,7 @@ func TestMaintainabilityGate(t *testing.T) {
 	t.Cleanup(func() { jevAnswers = "" })
 	repo := t.TempDir()
 	gitInit(t, repo)
-	writeFile(t, filepath.Join(repo, "project-context.json"), `{"purpose":"A CLI.","checks":[
+	writeFile(t, configPath(repo), `{"purpose":"A CLI.","checks":[
   {"check":"maintainability","threshold":0.5,"per_question":{"no_mixed_output_channels":0.6}}]}`)
 	writeFile(t, filepath.Join(repo, "main.go"), "package main\n")
 	gitRun(t, repo, "add", "main.go")
@@ -48,7 +48,7 @@ func TestMaintainabilityGate(t *testing.T) {
 	}
 
 	// A project that does not opt in never asks it.
-	writeFile(t, filepath.Join(repo, "project-context.json"), `{"checks":[{"check":"public-release","threshold":0.5}]}`)
+	writeFile(t, configPath(repo), `{"checks":[{"check":"public-release","threshold":0.5}]}`)
 	jevAnswers = ""
 	*requests = nil
 	wantCode(t, 1, "gate", repo, "--no-cache")
@@ -65,9 +65,9 @@ func TestMaintainabilityCorpus(t *testing.T) {
 	requests := setup(t)
 	repo := t.TempDir()
 	gitInit(t, repo)
-	writeFile(t, filepath.Join(repo, "project-context.json"), `{"exclude":["fixtures/"],"checks":[{"check":"maintainability","threshold":0.5}]}`)
-	corpus := filepath.Join(sourceDir, "fixtures", "maintainability")
-	if err := os.CopyFS(filepath.Join(repo, "fixtures", "maintainability"), os.DirFS(corpus)); err != nil {
+	writeFile(t, configPath(repo), `{"exclude":[".jev-check/fixtures/"],"checks":[{"check":"maintainability","threshold":0.5}]}`)
+	corpus := filepath.Join(sourceDir, bundleDir, "fixtures", "maintainability")
+	if err := os.CopyFS(filepath.Join(repo, ".jev-check", "fixtures", "maintainability"), os.DirFS(corpus)); err != nil {
 		t.Fatal(err)
 	}
 	pass, _ := filepath.Glob(filepath.Join(corpus, "pass", "*.patch"))

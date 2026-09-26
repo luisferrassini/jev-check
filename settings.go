@@ -13,9 +13,12 @@ import (
 	"strings"
 )
 
+// jevDir holds every file jev-check reads or writes in a project, relative to the project.
+const jevDir = ".jev-check"
+
 // settingsFile holds jev-check's key, endpoint, and model, relative to the project.
 // Nothing else is read for them: not the environment, not the project's own .env.
-const settingsFile = ".jev-check/.env"
+const settingsFile = jevDir + "/.env"
 
 const (
 	defaultEndpoint = "https://api.typesafe.ai/v1/systemone"
@@ -59,7 +62,7 @@ func readSettings(project string) (map[string]string, string, error) {
 			return nil, path, err
 		}
 		if out != "" {
-			return nil, path, fmt.Errorf("%s is tracked by Git; run git rm --cached -- %s and add .jev-check/.env to .gitignore", path, path)
+			return nil, path, fmt.Errorf("%s is tracked by Git; run git rm --cached -- %s and add .env to .jev-check/.gitignore", path, path)
 		}
 	}
 	values := map[string]string{}
@@ -118,8 +121,9 @@ func modelFlag(args []string, i int) (string, error) {
 const doctorUsage = `Usage: jev-check doctor [DIR]   (default: .)
 Prints the settings jev-check would use for DIR and any setup problem, without
 calling the API: the settings file DIR/.jev-check/.env, the endpoint, the model,
-whether the API key is set (never its value), DIR/project-context.json, and
-whether DIR is a git working tree with a writable output folder.
+whether the API key is set (never its value), DIR/.jev-check/project-context.json,
+no old DIR/project-context.json, and whether DIR is a git working tree with a
+writable DIR/.jev-check/output/ folder.
 Exit 0 when every line is ok, 1 when the model looks like a secret, 2 on a problem.
 `
 
@@ -174,7 +178,7 @@ func doctorCmd(args []string, stdout, _ io.Writer) (int, error) {
 		}
 	}
 
-	config := filepath.Join(dir, "project-context.json")
+	config := configPath(dir)
 	p, err := loadProject(dir)
 	if err == nil {
 		_, err = validateChecks(dir, p.Checks)
@@ -186,10 +190,14 @@ func doctorCmd(args []string, stdout, _ io.Writer) (int, error) {
 		err = fmt.Errorf("%s: %w", config, err)
 	}
 	line("project", config, err)
+	// With no new config, loadProject already reported the old one.
+	if old := filepath.Join(dir, "project-context.json"); fileExists(old) && fileExists(config) {
+		line("old layout", "", fmt.Errorf("%s is ignored; delete it or move it over %s", old, config))
+	}
 
-	out := filepath.Join(dir, "output")
+	out := filepath.Join(dir, jevDir, "output")
 	if !fileExists(out) {
-		out = dir
+		out = filepath.Join(dir, jevDir)
 	}
 	_, err = git(dir, "rev-parse", "--is-inside-work-tree")
 	if err == nil {

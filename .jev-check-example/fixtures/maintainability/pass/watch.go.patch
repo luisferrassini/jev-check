@@ -1,0 +1,21 @@
+diff --git a/watch.go b/watch.go
+new file mode 100644
+index 0000000..60fd8ca
+--- /dev/null
++++ b/watch.go
+@@ -0,0 +1,15 @@
++package main
++
++import (
++	"context"
++	"net"
++)
++
++// serve handles one connection and closes it when ctx is canceled.
++func serve(ctx context.Context, conn net.Conn) error {
++	stop := context.AfterFunc(ctx, func() {
++		conn.Close()
++	})
++	defer stop()
++	return handle(conn)
++}

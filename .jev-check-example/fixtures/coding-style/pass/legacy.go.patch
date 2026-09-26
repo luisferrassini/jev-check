@@ -1,0 +1,20 @@
+diff --git a/legacy.go b/legacy.go
+deleted file mode 100644
+index 011e04e..0000000
+--- a/legacy.go
++++ /dev/null
+@@ -1,14 +0,0 @@
+-package main
+-
+-import "errors"
+-
+-func proc(d []string) (int, error) {
+-	tmp := 0
+-	for _, x := range d {
+-		if x == "" {
+-			return 0, errors.New("failed")
+-		}
+-		tmp += len(x)
+-	}
+-	return tmp, nil
+-}

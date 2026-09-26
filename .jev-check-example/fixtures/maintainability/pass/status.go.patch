@@ -1,0 +1,18 @@
+diff --git a/status.go b/status.go
+new file mode 100644
+index 0000000..bef0439
+--- /dev/null
++++ b/status.go
+@@ -0,0 +1,12 @@
++package main
++
++import "fmt"
++
++// printStatus shows the queue to a person at a terminal.
++func printStatus(queue []Job) {
++	fmt.Printf("Found %d jobs:\n", len(queue))
++	for _, job := range queue {
++		fmt.Printf("  %-20s %s\n", job.Name, job.State)
++	}
++	fmt.Println("Run `queue retry NAME` to retry a failed job.")
++}

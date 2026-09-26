@@ -17,10 +17,10 @@ import (
 )
 
 const gateUsage = `Usage: jev-check gate [DIR] [--no-cache] [--model ID]   (default: .)
-Sends one patch per staged file to each check in DIR/project-context.json.
-Answers are cached for 24 hours in DIR/output/cache/v2/, keyed by the endpoint
-and the whole request: model, questions, project fields, tree, patch, and
-coding_style. Any change misses; a threshold change does not. --no-cache
+Sends one patch per staged file to each check in
+DIR/.jev-check/project-context.json. Answers are cached for 24 hours in
+DIR/.jev-check/output/cache/v2/, keyed by the endpoint and the whole request:
+model, questions, project fields, tree, patch, and coding_style. Any change misses; a threshold change does not. --no-cache
 always calls the API and saves the new answers.
 The key, endpoint, and model come from DIR/.jev-check/.env; --model ID
 overrides its model (see jev-check doctor).
@@ -80,11 +80,11 @@ func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	}
 	questions, err := validateChecks(dir, p.Checks)
 	if err != nil {
-		return 0, fmt.Errorf("%s: %w", filepath.Join(dir, "project-context.json"), err)
+		return 0, fmt.Errorf("%s: %w", configPath(dir), err)
 	}
 	stylePaths, styles, err := loadStyles(dir, p.Checks)
 	if err != nil {
-		return 0, fmt.Errorf("%s: %w", filepath.Join(dir, "project-context.json"), err)
+		return 0, fmt.Errorf("%s: %w", configPath(dir), err)
 	}
 	state, err := projectState(dir, p)
 	if err != nil {
@@ -223,7 +223,7 @@ func cachedJev(project, name string, cfg settings, req request, noCache bool, st
 		return response{}, false, err
 	}
 	sum := sha256.Sum256(key)
-	path := filepath.Join(project, "output", "cache", "v2", hex.EncodeToString(sum[:])+".json")
+	path := filepath.Join(project, jevDir, "output", "cache", "v2", hex.EncodeToString(sum[:])+".json")
 	var entry cacheEntry
 	if !noCache && readJSON(path, &entry) == nil && entry.Version == cacheVersion {
 		created, err := time.Parse(time.RFC3339, entry.CreatedAt)

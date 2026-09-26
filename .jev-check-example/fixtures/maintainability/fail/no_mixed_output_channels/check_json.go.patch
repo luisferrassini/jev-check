@@ -1,0 +1,29 @@
+diff --git a/check_json.go b/check_json.go
+new file mode 100644
+index 0000000..c27426b
+--- /dev/null
++++ b/check_json.go
+@@ -0,0 +1,23 @@
++package main
++
++import (
++	"encoding/json"
++	"fmt"
++	"os"
++)
++
++// printChecks writes the check results. With --json, stdout holds only the JSON report,
++// so other programs can parse it.
++func printChecks(report Report, jsonMode bool) error {
++	if jsonMode {
++		if err := json.NewEncoder(os.Stdout).Encode(report); err != nil {
++			return err
++		}
++		fmt.Printf("debug: wrote %d checks\n", len(report.Checks))
++		return nil
++	}
++	for _, c := range report.Checks {
++		fmt.Printf("%s: %s\n", c.Name, c.Status)
++	}
++	return nil
++}

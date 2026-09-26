@@ -1,0 +1,54 @@
+{
+  "title": "Ready for a public repository",
+  "description": "Can a file be published in a public GitHub repository as it is? One question per risk: personal data, outside paths, private links, language, third-party content, leftovers. The gate sends one patch per staged file. Every answer is the probability that the file is fine on that axis. .jev-check-example/fixtures/public-release/ holds the cases that set its threshold.",
+  "questions": {
+    "no_personal_info": {
+      "type": "noul",
+      "instructions": "Is the patch in `files` free of personal information about the author or their machine?",
+      "criteria": {
+        "true": "No added line holds a personal home path such as /home/<user> or /Users/<user>, a personal or work email address, a username, a machine or sandbox name, or a real person's name. Placeholders such as <user>, you@example.com, and $HOME are fine.",
+        "false": "An added line holds a personal home path, an email address, a username, a machine or sandbox name, or a real person's name."
+      }
+    },
+    "no_outside_paths": {
+      "type": "noul",
+      "instructions": "Does the patch in `files` avoid naming folders or projects that live outside this repository on the author's machine?",
+      "criteria": {
+        "true": "Every local path in the patch is inside this repository or is a standard system path.",
+        "false": "A path names a sibling project, a parent folder, or a home folder that is not part of this repository."
+      }
+    },
+    "no_private_links": {
+      "type": "noul",
+      "instructions": "Is the patch in `files` free of links and host names that a stranger cannot reach, such as internal company hosts, private repositories, or ticket and chat links?",
+      "criteria": {
+        "true": "Every link and host is public, including public APIs and docs the project uses, or there are none.",
+        "false": "A link or host is internal, private, or only reachable from the author's network."
+      }
+    },
+    "english_only": {
+      "type": "noul",
+      "instructions": "Could an English-only reader read every comment, message, and doc line added in the patch in `files`?",
+      "criteria": {
+        "true": "Yes. There are no sentences in another language.",
+        "false": "No. At least one sentence is written in another language, such as Portuguese or Spanish."
+      }
+    },
+    "no_third_party_content": {
+      "type": "noul",
+      "instructions": "Is the patch in `files` free of copied third-party content that the project has no clear right to publish?",
+      "criteria": {
+        "true": "The content is the project's own, or short quotes, or material with a license that allows it and credits the source.",
+        "false": "An added line holds a copied article, blog post, book text, another project's files, or a scraped web page, without a license that allows publishing it."
+      }
+    },
+    "belongs_in_project": {
+      "type": "noul",
+      "instructions": "Does the file in `files` serve the purpose in `project`, rather than being a leftover from an experiment or another project?",
+      "criteria": {
+        "true": "The file is code, docs, config, a test, or an example that this project uses or documents.",
+        "false": "The file is a scratch note, an experiment, a stray output, or sample data or config for a different project."
+      }
+    }
+  }
+}

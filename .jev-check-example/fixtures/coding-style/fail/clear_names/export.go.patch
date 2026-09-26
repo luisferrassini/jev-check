@@ -1,0 +1,33 @@
+diff --git a/export.go b/export.go
+new file mode 100644
+index 0000000..9672404
+--- /dev/null
++++ b/export.go
+@@ -0,0 +1,27 @@
++package main
++
++import (
++	"encoding/csv"
++	"fmt"
++	"os"
++)
++
++// doStuff writes the rows to a CSV file.
++func doStuff(data [][]string, val2 string) error {
++	tmp, err := os.Create(val2)
++	if err != nil {
++		return fmt.Errorf("creating %s: %w", val2, err)
++	}
++	defer tmp.Close()
++	x := csv.NewWriter(tmp)
++	for _, d := range data {
++		if err := x.Write(d); err != nil {
++			return fmt.Errorf("writing a row to %s: %w", val2, err)
++		}
++	}
++	x.Flush()
++	if err := x.Error(); err != nil {
++		return fmt.Errorf("writing %s: %w", val2, err)
++	}
++	return tmp.Close()
++}

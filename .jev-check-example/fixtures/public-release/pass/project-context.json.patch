@@ -1,0 +1,70 @@
+diff --git a/project-context.json b/project-context.json
+new file mode 100644
+index 0000000..714830b
+--- /dev/null
++++ b/project-context.json
+@@ -0,0 +1,64 @@
++{
++  "purpose": "A local developer CLI that sends yes/no checks about files to the Jev API. A developer or an agent runs it by hand, so its arguments and files come from the developer, not from untrusted users.",
++  "rules": [
++    "Go standard library and git only.",
++    "The API key is read from the local .env and sent only to the Jev API.",
++    "Nothing in this folder points to files outside it.",
++    "This is a public GitHub repository, written in English. Jev, noul, and TypeSafe are the public names of the API and its yes/no answer type."
++  ],
++  "folders": {
++    ".": "One Go binary, jev-check. ask.go asks one check, context.go builds the project state, secrets.go scans patches locally, judge.go applies thresholds, gate.go runs the checks on staged files. main_test.go tests them offline with a fake Jev server, in temp folders, and passes paths like ../x to check that they are refused.",
++    "input/questions": "One check per file. example.json is the first check a new user runs.",
++    "input/states": "Optional fixed state per check. example.json holds a short script with two deliberate flaws for the example check to find.",
++    ".claude/skills/jev-check": "Tells an agent how to use the tool."
++  },
++  "exclude": [
++    ".env",
++    "output/"
++  ],
++  "checks": [
++    {
++      "check": "security-risk",
++      "threshold": 0.85,
++      "per_question": {
++        "paths_contained": 0.75
++      },
++      "skip": [
++        "*.md",
++        "*.json",
++        "LICENSE"
++      ]
++    },
++    {
++      "check": "code-quality",
++      "threshold": 0.85,
++      "per_question": {
++        "errors_handled": 0.75
++      },
++      "skip": [
++        "*.md",
++        "*.json",
++        ".gitignore",
++        ".env.example",
++        "LICENSE"
++      ],
++      "pass_when": {
++        "question": "main_problem",
++        "choice": "none",
++        "min": 0.7
++      }
++    },
++    {
++      "check": "public-release",
++      "threshold": 0.9,
++      "pass_when": {
++        "question": "main_problem",
++        "choice": "none",
++        "min": 0.9
++      },
++      "skip": [
++        "LICENSE"
++      ]
++    }
++  ]
++}

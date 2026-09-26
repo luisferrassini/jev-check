@@ -32,7 +32,7 @@ type project struct {
 
 func contextCmd(args []string, stdout, _ io.Writer) (int, error) {
 	if len(args) > 0 && isHelp(args[0]) {
-		fmt.Fprint(stdout, `Usage: jev-check context [DIR]   reads DIR/project-context.json (default: .)
+		fmt.Fprint(stdout, `Usage: jev-check context [DIR]   reads DIR/.jev-check/project-context.json (default: .)
 Prints the project fields and tree that go with every request. When checks
 name a coding_style document, coding_styles maps each path to its contents
 once. A request holds only its own check's document, as state.coding_style.
@@ -67,9 +67,23 @@ once. A request holds only its own check's document, as state.coding_style.
 	return 0, writeJSON(stdout, state)
 }
 
+// configPath is dir's project-context.json.
+func configPath(dir string) string { return filepath.Join(dir, jevDir, "project-context.json") }
+
+// loadProject reads dir's config. A config left at the project root is never read:
+// it is an error with the move steps, so its checks are not silently replaced.
 func loadProject(dir string) (project, error) {
 	var p project
-	return p, readJSON(filepath.Join(dir, "project-context.json"), &p)
+	err := readJSON(configPath(dir), &p)
+	if old := filepath.Join(dir, "project-context.json"); errors.Is(err, fs.ErrNotExist) && fileExists(old) {
+		return p, fmt.Errorf(`%s is no longer read; jev-check reads %s. Move the jev-check files, in %s:
+  mkdir -p .jev-check
+  git mv project-context.json .jev-check/
+  git mv input .jev-check/      # only jev-check checks, if any
+  git mv fixtures .jev-check/   # if any
+Old output/ can be deleted`, old, configPath(dir), dir)
+	}
+	return p, err
 }
 
 // projectState is the state Jev sees: the project's about fields and its file tree.
@@ -105,8 +119,10 @@ func excludes(patterns []string) []string {
 }
 
 const initUsage = `Usage: jev-check init [DIR]   (default: .)
-Creates DIR/project-context.json with the starting defaults. DIR must be in a
-git working tree. An existing file is never replaced.
+Creates DIR/.jev-check/project-context.json with the starting defaults, and
+DIR/.jev-check/.gitignore to keep .env and output/ out of Git. DIR must be in a
+git working tree. An existing config is never replaced; an existing .gitignore
+is left as it is.
 `
 
 // initConfig is the starting project-context.json. Its defaults are this repository's, not a policy for every project.
@@ -114,7 +130,7 @@ const initConfig = `{
   "purpose": "",
   "rules": [],
   "folders": {},
-  "exclude": [".env", "output/", "fixtures/"],
+  "exclude": [".jev-check/"],
   "checks": [{ "check": "public-release", "threshold": 0.5, "skip": ["LICENSE"] }]
 }
 `
@@ -137,32 +153,51 @@ func initCmd(args []string, stdout, _ io.Writer) (int, error) {
 	if out, err := git(dir, "rev-parse", "--is-inside-work-tree"); err != nil || strings.TrimSpace(out) != "true" {
 		return 0, fmt.Errorf("%s is not in a git working tree", dir)
 	}
-	path := filepath.Join(dir, "project-context.json")
-	// O_EXCL refuses any existing entry, a symlink included, even when two inits race.
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-	if errors.Is(err, fs.ErrExist) {
+	// Mkdir, not MkdirAll: a file or symlink named .jev-check is an error, not a folder to follow.
+	if err := os.Mkdir(filepath.Join(dir, jevDir), 0o755); err != nil && !errors.Is(err, fs.ErrExist) {
+		return 0, err
+	}
+	if info, err := os.Lstat(filepath.Join(dir, jevDir)); err != nil || !info.IsDir() {
+		return 0, fmt.Errorf("%s is not a folder", filepath.Join(dir, jevDir))
+	}
+	path := configPath(dir)
+	if err := createFile(path, initConfig); errors.Is(err, fs.ErrExist) {
 		return 0, fmt.Errorf("%s already exists; inspect it instead of running init", path)
 	} else if err != nil {
 		return 0, err
 	}
-	_, err = f.WriteString(initConfig)
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	if err != nil {
-		os.Remove(path)
-		return 0, fmt.Errorf("writing %s: %w", path, err)
+	ignore := filepath.Join(dir, jevDir, ".gitignore")
+	if err := createFile(ignore, ".env\noutput/\n"); err != nil && !errors.Is(err, fs.ErrExist) {
+		return 0, err
 	}
 	fmt.Fprintf(stdout, `created %s
 Next:
   1. Review it: purpose, rules, exclude, and the public-release check at threshold 0.5.
   2. Put TYPESAFE_API_KEY=<key> in %s. No other place is read.
-  3. Add .jev-check/.env and output/ to the project's ignore rules.
-  4. Check the setup: jev-check doctor %s
-  5. Stage the work you want checked: git add -- <path>
-  6. Run: jev-check gate %s
-`, path, filepath.Join(dir, settingsFile), dir, dir)
+     %s keeps it and output/ out of Git.
+  3. Check the setup: jev-check doctor %s
+  4. Stage the work you want checked: git add -- <path>
+  5. Run: jev-check gate %s
+`, path, filepath.Join(dir, settingsFile), ignore, dir, dir)
 	return 0, nil
+}
+
+// createFile writes a new file. O_EXCL refuses any existing entry, a symlink
+// included, even when two inits race. A failed write removes the file.
+func createFile(path, content string) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return err
+	}
+	_, err = f.WriteString(content)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(path)
+		return fmt.Errorf("writing %s: %w", path, err)
+	}
+	return nil
 }
 
 // maxStyleBytes caps a coding_style document, so a large file cannot flood a request.

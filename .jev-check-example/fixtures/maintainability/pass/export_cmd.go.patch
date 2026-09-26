@@ -1,0 +1,20 @@
+diff --git a/export_cmd.go b/export_cmd.go
+new file mode 100644
+index 0000000..21829f0
+--- /dev/null
++++ b/export_cmd.go
+@@ -0,0 +1,14 @@
++package main
++
++import (
++	"encoding/json"
++	"fmt"
++	"os"
++)
++
++// runExport writes the items as JSON. Scripts read stdout, so stdout holds only JSON;
++// progress goes to stderr.
++func runExport(items []Item) error {
++	fmt.Fprintf(os.Stderr, "exporting %d items...\n", len(items))
++	return json.NewEncoder(os.Stdout).Encode(items)
++}

@@ -1,0 +1,25 @@
+diff --git a/limits.go b/limits.go
+new file mode 100644
+index 0000000..b511766
+--- /dev/null
++++ b/limits.go
+@@ -0,0 +1,19 @@
++package main
++
++import (
++	"errors"
++	"os"
++	"strconv"
++)
++
++// retryLimit reads the retry limit from the second command-line argument.
++func retryLimit() (int, error) {
++	if len(os.Args) < 3 {
++		return 0, errors.New("invalid")
++	}
++	maxRetries, _ := strconv.Atoi(os.Args[2])
++	if maxRetries > 10 {
++		return 0, errors.New("invalid")
++	}
++	return maxRetries, nil
++}

@@ -1,0 +1,15 @@
+diff --git a/users.go b/users.go
+index 5b1daf7..2f2e234 100644
+--- a/users.go
++++ b/users.go
+@@ -36,6 +36,10 @@ const field10 = "column_10"
+ // field11 documents one column of the users table.
+ const field11 = "column_11"
+ 
++func loadUser(id string) (*User, error) {
++	return db.LoadUser(id)
++}
++
+ func deleteUser(id string) error {
+ 	return db.Delete("users", id)
+ }

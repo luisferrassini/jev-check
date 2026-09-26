@@ -1,0 +1,25 @@
+diff --git a/config_read.go b/config_read.go
+new file mode 100644
+index 0000000..88614ac
+--- /dev/null
++++ b/config_read.go
+@@ -0,0 +1,19 @@
++package main
++
++import (
++	"os"
++	"path/filepath"
++)
++
++// readConfig reads config.json from a project folder.
++func readConfig(dir string) ([]byte, error) {
++	return os.ReadFile(filepath.Join(dir, "config.json"))
++}
++
++func projectName(dir string) (string, error) {
++	data, err := readConfig(dir)
++	if err != nil {
++		return "", err
++	}
++	return parseName(data)
++}

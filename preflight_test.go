@@ -98,7 +98,7 @@ func TestGatePreflight(t *testing.T) {
 	repo := t.TempDir()
 	gitInit(t, repo)
 	config := func(extra string) {
-		writeFile(t, filepath.Join(repo, "project-context.json"), `{`+extra+` "exclude":["input/"], "checks":[{"check":"public-release","threshold":0.2}]}`)
+		writeFile(t, configPath(repo), `{`+extra+` "exclude":[".jev-check/input/"], "checks":[{"check":"public-release","threshold":0.2}]}`)
 	}
 
 	// Shared context stops the whole gate, even with nothing staged.
@@ -124,8 +124,8 @@ func TestGatePreflight(t *testing.T) {
 	os.Remove(named)
 
 	// A check whose questions look like secrets is skipped; clean checks still run.
-	writeFile(t, filepath.Join(repo, "input/questions/bad.json"), `{"questions":{"q":{"type":"noul","instructions":"`+ghToken+`"}}}`)
-	writeFile(t, filepath.Join(repo, "project-context.json"), `{"exclude":["input/"], "checks":[{"check":"bad","threshold":0.2},{"check":"public-release","threshold":0.2}]}`)
+	writeFile(t, filepath.Join(repo, ".jev-check/input/questions/bad.json"), `{"questions":{"q":{"type":"noul","instructions":"`+ghToken+`"}}}`)
+	writeFile(t, configPath(repo), `{"exclude":[".jev-check/input/"], "checks":[{"check":"bad","threshold":0.2},{"check":"public-release","threshold":0.2}]}`)
 	*requests = nil
 	code, out := jev(t, "gate", repo, "--no-cache")
 	if code != 1 || len(*requests) != 1 || strings.Contains(out, ghToken) || !strings.Contains(out, "== public-release a.txt") {
@@ -133,8 +133,8 @@ func TestGatePreflight(t *testing.T) {
 	}
 
 	// A blocked patch and an API failure elsewhere: the error wins.
-	writeFile(t, filepath.Join(repo, "input/questions/down.json"), `{"questions":{"api_down":{"type":"noul"}}}`)
-	writeFile(t, filepath.Join(repo, "project-context.json"), `{"exclude":["input/"], "checks":[{"check":"public-release","threshold":0.2},{"check":"down","threshold":0.2}]}`)
+	writeFile(t, filepath.Join(repo, ".jev-check/input/questions/down.json"), `{"questions":{"api_down":{"type":"noul"}}}`)
+	writeFile(t, configPath(repo), `{"exclude":[".jev-check/input/"], "checks":[{"check":"public-release","threshold":0.2},{"check":"down","threshold":0.2}]}`)
 	writeFile(t, filepath.Join(repo, "b.txt"), "aws = "+awsKey+"\n")
 	gitRun(t, repo, "add", "b.txt")
 	if code, out := jev(t, "gate", repo, "--no-cache"); code != 2 || strings.Contains(out, awsKey) || !strings.HasSuffix(out, "gate: ERROR\n") {
@@ -146,8 +146,8 @@ func TestEvalPreflight(t *testing.T) {
 	requests := setup(t)
 	repo := t.TempDir()
 	gitInit(t, repo)
-	writeFile(t, filepath.Join(repo, "project-context.json"), `{"exclude":["fixtures/"],"checks":[{"check":"public-release","threshold":0.2}]}`)
-	fixtures := filepath.Join(repo, "fixtures", "public-release")
+	writeFile(t, configPath(repo), `{"exclude":[".jev-check/fixtures/"],"checks":[{"check":"public-release","threshold":0.2}]}`)
+	fixtures := filepath.Join(repo, ".jev-check", "fixtures", "public-release")
 	writeFile(t, filepath.Join(fixtures, "pass", "a.go.patch"), gitPatch(t, "a.go", "package a\n"))
 	for _, q := range []string{"english_only", "no_personal_info", "no_outside_paths", "no_private_links", "no_third_party_content", "belongs_in_project"} {
 		writeFile(t, filepath.Join(fixtures, "fail", q, "b.go.patch"), gitPatch(t, "bad-"+q+".go", "package b\n"))

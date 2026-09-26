@@ -32,9 +32,9 @@ func evalProject(t *testing.T, config string) (string, string) {
 	t.Helper()
 	repo := t.TempDir()
 	gitInit(t, repo)
-	writeFile(t, filepath.Join(repo, "input/questions/two.json"), twoQuestions)
-	writeFile(t, filepath.Join(repo, "project-context.json"), `{"exclude":["fixtures/","input/"],"checks":[`+config+`]}`)
-	return repo, filepath.Join(repo, "fixtures", "two")
+	writeFile(t, filepath.Join(repo, ".jev-check/input/questions/two.json"), twoQuestions)
+	writeFile(t, configPath(repo), `{"exclude":[".jev-check/fixtures/",".jev-check/input/"],"checks":[`+config+`]}`)
+	return repo, filepath.Join(repo, ".jev-check", "fixtures", "two")
 }
 
 func TestEvalCoverage(t *testing.T) {
@@ -70,12 +70,12 @@ func TestEvalCoverage(t *testing.T) {
 	os.MkdirAll(filepath.Join(fixtures, "pass", "dir.patch"), 0o755)
 	wantCode(t, 2, "eval", "two", repo)
 	os.Remove(filepath.Join(fixtures, "pass", "dir.patch"))
-	if len(*requests) != 0 || fileExists(filepath.Join(repo, "output")) {
+	if len(*requests) != 0 || fileExists(filepath.Join(repo, ".jev-check", "output")) {
 		t.Fatalf("%d requests before the suite was complete", len(*requests))
 	}
 
 	// Equality passes: a pass fixture at the threshold passes, a fail fixture at it misses.
-	writeFile(t, filepath.Join(repo, "project-context.json"), `{"exclude":["fixtures/","input/"],"checks":[{"check":"two","threshold":0.9}]}`)
+	writeFile(t, configPath(repo), `{"exclude":[".jev-check/fixtures/",".jev-check/input/"],"checks":[{"check":"two","threshold":0.9}]}`)
 	out := wantCode(t, 1, "eval", "two", repo)
 	for _, want := range []string{
 		"positive  negative  question\n1         1         q1\n1         1         q2\n",
@@ -92,7 +92,7 @@ func TestEvalCoverage(t *testing.T) {
 
 	// Only the named question counts on a fail fixture; per_question overrides apply.
 	jevAnswers = ""
-	writeFile(t, filepath.Join(repo, "project-context.json"), `{"exclude":["fixtures/","input/"],"checks":[{"check":"two","threshold":0.5,"per_question":{"q2":0.95}}]}`)
+	writeFile(t, configPath(repo), `{"exclude":[".jev-check/fixtures/",".jev-check/input/"],"checks":[{"check":"two","threshold":0.5,"per_question":{"q2":0.95}}]}`)
 	os.RemoveAll(filepath.Join(fixtures, "fail"))
 	writeFile(t, filepath.Join(fixtures, "fail", "q1", "b.patch"), gitPatch(t, "bad-q1.go", "package b\n"))
 	writeFile(t, filepath.Join(fixtures, "fail", "q2", "c.patch"), gitPatch(t, "bad-q2.go", "package c\n"))
@@ -100,7 +100,7 @@ func TestEvalCoverage(t *testing.T) {
 	if !strings.Contains(out, "MISS  0.9  q2  pass/a.patch fails it\n") || !strings.HasSuffix(out, "eval: 1 misses in 3 fixtures\n") {
 		t.Errorf("eval output:\n%s", out)
 	}
-	writeFile(t, filepath.Join(repo, "project-context.json"), `{"exclude":["fixtures/","input/"],"checks":[{"check":"two","threshold":0.5}]}`)
+	writeFile(t, configPath(repo), `{"exclude":[".jev-check/fixtures/",".jev-check/input/"],"checks":[{"check":"two","threshold":0.5}]}`)
 	wantCode(t, 0, "eval", "two", repo)
 
 	// A malformed last fixture stops the run even when the others are cached.
@@ -113,7 +113,7 @@ func TestEvalCoverage(t *testing.T) {
 	os.Remove(filepath.Join(fixtures, "fail", "q2", "z.patch"))
 
 	// A check with no yes/no question cannot be evaluated.
-	writeFile(t, filepath.Join(repo, "input/questions/two.json"), `{"questions":{"info":{"type":"choice"}}}`)
+	writeFile(t, filepath.Join(repo, ".jev-check/input/questions/two.json"), `{"questions":{"info":{"type":"choice"}}}`)
 	wantCode(t, 2, "eval", "two", repo)
 }
 

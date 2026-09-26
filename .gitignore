@@ -1,5 +1,5 @@
 .env
-.jev-check/.env
-output/
 __pycache__/
 /jev-check
+.sbx-configs
+.jev-check

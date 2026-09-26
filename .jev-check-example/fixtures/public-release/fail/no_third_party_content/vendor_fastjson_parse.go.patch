@@ -1,0 +1,13 @@
+diff --git a/vendor/fastjson/parse.go b/vendor/fastjson/parse.go
+new file mode 100644
+index 0000000..2617da9
+--- /dev/null
++++ b/vendor/fastjson/parse.go
+@@ -0,0 +1,7 @@
++// Copyright 2019 Initech Software GmbH. All rights reserved.
++// PROPRIETARY AND CONFIDENTIAL. Unauthorized copying of this file, via any
++// medium, is strictly prohibited. Licensed to Initech customers only.
++
++package fastjson
++
++func Parse(b []byte) (any, error) { return parse(b, 0) }

@@ -152,7 +152,7 @@ func TestEndpointSetting(t *testing.T) {
 	project, _ := os.Getwd()
 	repo := t.TempDir()
 	gitInit(t, repo)
-	writeFile(t, filepath.Join(repo, "project-context.json"), `{"checks":[{"check":"public-release","threshold":0.5}]}`)
+	writeFile(t, configPath(repo), `{"checks":[{"check":"public-release","threshold":0.5}]}`)
 	for _, bad := range []string{
 		"not a url", "/v1/systemone", "api.typesafe.ai/v1", "https:///v1", "ftp://127.0.0.1/",
 		"http://api.typesafe.ai/v1", "http://10.0.0.1/", "http://localhost.example.com/",
@@ -198,7 +198,7 @@ func TestDoctor(t *testing.T) {
 	good := "TYPESAFE_API_KEY=" + key + "\nJEV_CHECK_ENDPOINT=" + fakeEndpoint + "\n"
 	writeSettings(t, repo, good)
 	config := `{"checks":[{"check":"public-release","threshold":0.5}]}`
-	writeFile(t, filepath.Join(repo, "project-context.json"), config)
+	writeFile(t, configPath(repo), config)
 
 	out := wantCode(t, 0, "doctor", repo)
 	for _, want := range []string{
@@ -206,19 +206,19 @@ func TestDoctor(t *testing.T) {
 		"ok    endpoint  " + fakeEndpoint + " (" + settings + ")\n",
 		"ok    model  jev-latest (default)\n",
 		"ok    API key  set\n",
-		"ok    project  " + filepath.Join(repo, "project-context.json") + "\n",
-		"ok    git and output  " + repo + " is writable\n",
+		"ok    project  " + configPath(repo) + "\n",
+		"ok    git and output  " + filepath.Join(repo, ".jev-check") + " is writable\n",
 		"doctor: ok; the key and the service were not tested\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}
 	}
-	os.Mkdir(filepath.Join(repo, "output"), 0o755)
-	if out := wantCode(t, 0, "doctor", repo); !strings.Contains(out, filepath.Join(repo, "output")+" is writable") {
+	os.Mkdir(filepath.Join(repo, ".jev-check", "output"), 0o755)
+	if out := wantCode(t, 0, "doctor", repo); !strings.Contains(out, filepath.Join(repo, ".jev-check", "output")+" is writable") {
 		t.Errorf("doctor:\n%s", out)
 	}
-	if entries, _ := os.ReadDir(filepath.Join(repo, "output")); len(entries) != 0 {
+	if entries, _ := os.ReadDir(filepath.Join(repo, ".jev-check", "output")); len(entries) != 0 {
 		t.Errorf("doctor left %v", entries)
 	}
 	writeSettings(t, repo, good+"JEV_CHECK_MODEL=pinned\n")
@@ -238,9 +238,9 @@ func TestDoctor(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			writeSettings(t, repo, c.settings)
-			os.Remove(filepath.Join(repo, "project-context.json"))
+			os.Remove(configPath(repo))
 			if c.config != "" {
-				writeFile(t, filepath.Join(repo, "project-context.json"), c.config)
+				writeFile(t, configPath(repo), c.config)
 			}
 			want := 2
 			if c.want == "" {
@@ -252,7 +252,19 @@ func TestDoctor(t *testing.T) {
 		})
 	}
 	writeSettings(t, repo, good)
-	writeFile(t, filepath.Join(repo, "project-context.json"), config)
+	writeFile(t, configPath(repo), config)
+
+	// A config left at the root is ignored, so it is a problem even next to the new one.
+	old := writeFile(t, filepath.Join(repo, "project-context.json"), config)
+	if out := wantCode(t, 2, "doctor", repo); !strings.Contains(out, "FAIL  old layout  "+old) {
+		t.Errorf("doctor:\n%s", out)
+	}
+	os.Remove(configPath(repo))
+	if out := wantCode(t, 2, "doctor", repo); !strings.Contains(out, "FAIL  project  "+old) || strings.Contains(out, "old layout") {
+		t.Errorf("doctor:\n%s", out)
+	}
+	os.Remove(old)
+	writeFile(t, configPath(repo), config)
 
 	os.Remove(settings)
 	if out := wantCode(t, 2, "doctor", repo); !strings.Contains(out, "ok    settings file  "+settings+" missing") {
@@ -265,11 +277,11 @@ func TestDoctor(t *testing.T) {
 	}
 	writeSettings(t, repo, good)
 	if os.Geteuid() != 0 {
-		os.Chmod(filepath.Join(repo, "output"), 0o555)
+		os.Chmod(filepath.Join(repo, ".jev-check", "output"), 0o555)
 		if out := wantCode(t, 2, "doctor", repo); !strings.Contains(out, "FAIL  git and output  ") {
 			t.Errorf("doctor:\n%s", out)
 		}
-		os.Chmod(filepath.Join(repo, "output"), 0o755)
+		os.Chmod(filepath.Join(repo, ".jev-check", "output"), 0o755)
 		os.Chmod(settings, 0)
 		if out := wantCode(t, 2, "doctor", repo); !strings.Contains(out, "FAIL  settings file  ") {
 			t.Errorf("doctor:\n%s", out)

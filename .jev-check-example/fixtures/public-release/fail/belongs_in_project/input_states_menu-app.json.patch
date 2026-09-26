@@ -1,0 +1,12 @@
+diff --git a/input/states/menu-app.json b/input/states/menu-app.json
+new file mode 100644
+index 0000000..344e7c9
+--- /dev/null
++++ b/input/states/menu-app.json
+@@ -0,0 +1,6 @@
++{
++  "files": {
++    "menu-app/README.md": "This is a Next.js project bootstrapped with create-next-app.\n\n## Getting Started\n\nRun `npm run dev` and open http://localhost:3000.\n\nConfigure your Gemini API key in the app when creating a menu.",
++    "menu-app/docker-compose.yml": "services:\n  web:\n    build: .\n    ports:\n      - \"3000:3000\"\n"
++  }
++}

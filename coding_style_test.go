@@ -13,7 +13,7 @@ func styleRepo(t *testing.T, checks string) string {
 	t.Helper()
 	repo := t.TempDir()
 	gitInit(t, repo)
-	writeFile(t, filepath.Join(repo, "input/questions/other.json"), `{"questions":{"other":{"type":"noul"}}}`)
+	writeFile(t, filepath.Join(repo, ".jev-check/input/questions/other.json"), `{"questions":{"other":{"type":"noul"}}}`)
 	styleConfig(t, repo, checks)
 	writeFile(t, filepath.Join(repo, "a.go"), "package a\n")
 	gitRun(t, repo, "add", "a.go")
@@ -22,7 +22,7 @@ func styleRepo(t *testing.T, checks string) string {
 
 func styleConfig(t *testing.T, repo, checks string) {
 	t.Helper()
-	writeFile(t, filepath.Join(repo, "project-context.json"), `{"exclude":["input/","fixtures/","CODING_STYLE.md"],"checks":[`+checks+`]}`)
+	writeFile(t, configPath(repo), `{"exclude":[".jev-check/input/",".jev-check/fixtures/","CODING_STYLE.md"],"checks":[`+checks+`]}`)
 }
 
 // sentStyles returns each request's coding_style, by check.
@@ -100,7 +100,7 @@ func TestCodingStyleRequests(t *testing.T) {
 	writeFile(t, filepath.Join(repo, "CODING_STYLE.md"), "# Style\nv4\n")
 
 	// Gate and eval send the same document.
-	fixtures := filepath.Join(repo, "fixtures", "public-release")
+	fixtures := filepath.Join(repo, ".jev-check", "fixtures", "public-release")
 	writeFile(t, filepath.Join(fixtures, "pass", "a.patch"), gitPatch(t, "a.go", "package a\n"))
 	for _, q := range []string{"english_only", "no_personal_info", "no_outside_paths", "no_private_links", "no_third_party_content", "belongs_in_project"} {
 		writeFile(t, filepath.Join(fixtures, "fail", q, "b.patch"), gitPatch(t, "bad-"+q+".go", "package b\n"))
@@ -189,7 +189,7 @@ func TestCodingStyleSecret(t *testing.T) {
 			t.Errorf("%s output:\n%s", args[0], out)
 		}
 	}
-	fixtures := filepath.Join(repo, "fixtures", "public-release")
+	fixtures := filepath.Join(repo, ".jev-check", "fixtures", "public-release")
 	writeFile(t, filepath.Join(fixtures, "pass", "a.patch"), gitPatch(t, "a.go", "package a\n"))
 	for _, q := range []string{"english_only", "no_personal_info", "no_outside_paths", "no_private_links", "no_third_party_content", "belongs_in_project"} {
 		writeFile(t, filepath.Join(fixtures, "fail", q, "b.patch"), gitPatch(t, "bad-"+q+".go", "package b\n"))

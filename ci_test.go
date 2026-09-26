@@ -12,7 +12,7 @@ import (
 // and requires a valid request with no call to the API.
 func TestShippedChecksDryRun(t *testing.T) {
 	requests := setup(t)
-	names, err := filepath.Glob(filepath.Join(sourceDir, "input/questions/*.json"))
+	names, err := filepath.Glob(filepath.Join(sourceDir, bundleDir, "input/questions/*.json"))
 	if err != nil || len(names) == 0 {
 		t.Fatalf("no shipped checks: %v", err)
 	}
@@ -24,7 +24,7 @@ func TestShippedChecksDryRun(t *testing.T) {
 			t.Errorf("list does not show %s:\n%s", name, list)
 		}
 		args := []string{"ask", "--dry-run", name}
-		if !fileExists(filepath.Join(sourceDir, "input/states", name+".json")) {
+		if !fileExists(filepath.Join(sourceDir, bundleDir, "input/states", name+".json")) {
 			args = append(args, "--file", input)
 		}
 		var req request
@@ -44,14 +44,14 @@ func TestShippedChecksDryRun(t *testing.T) {
 // project-context.json and on the README's canonical example. Both must validate.
 func TestShippedConfigs(t *testing.T) {
 	requests := setup(t)
-	real, err := os.ReadFile(filepath.Join(sourceDir, "project-context.json"))
+	real, err := os.ReadFile(filepath.Join(sourceDir, bundleDir, "project-context.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for name, config := range map[string]string{"project-context.json": string(real), "README": readmeConfig(t)} {
 		repo := t.TempDir()
 		gitInit(t, repo)
-		writeFile(t, filepath.Join(repo, "project-context.json"), config)
+		writeFile(t, configPath(repo), config)
 		if out := wantCode(t, 0, "gate", repo); out != "nothing staged\n" {
 			t.Errorf("%s: gate: %s", name, out)
 		}

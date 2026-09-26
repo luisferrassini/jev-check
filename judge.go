@@ -11,7 +11,7 @@ import (
 )
 
 const judgeUsage = `Usage: jev-check judge OUTPUT.json THRESHOLD [QUESTION=THRESHOLD]...
-OUTPUT.json is a file saved under output/. Exit 0 ok, 1 below threshold, 2 error.
+OUTPUT.json is a file saved under .jev-check/output/. Exit 0 ok, 1 below threshold, 2 error.
 `
 
 func judgeCmd(args []string, stdout, _ io.Writer) (int, error) {

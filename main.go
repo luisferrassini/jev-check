@@ -13,18 +13,19 @@ import (
 const usage = `Usage: jev-check <command> [args]
 
 Commands:
-  init [DIR]                create DIR/project-context.json (default: .)
-  list [DIR]                list the bundled checks and DIR/input/questions/
+  init [DIR]                create DIR/.jev-check/project-context.json (default: .)
+  list [DIR]                list the bundled checks and DIR/.jev-check/input/questions/
   ask <check> [options]     ask one check (see jev-check ask --help)
   context [DIR]             print the project state Jev sees for DIR
   secrets PATCH...          scan patches for secrets, including removed lines
   judge OUTPUT THRESHOLD [QUESTION=THRESHOLD]...
                             judge a saved answer again, without the API
   gate [DIR]                run DIR's checks on its staged files
-  eval <check> [DIR]        test a check's thresholds on DIR/fixtures/<check>/
+  eval <check> [DIR]        test a check's thresholds on DIR/.jev-check/fixtures/<check>/
   doctor [DIR]              show DIR's settings and setup problems, offline
 
-ask, gate, and eval read the API key, endpoint, and model from the project's
+Every file jev-check reads or writes in a project is under .jev-check/. ask,
+gate, and eval read the API key, endpoint, and model from the project's
 .jev-check/.env and from nothing else (see jev-check doctor --help).
 
 Exit codes: 0 ok, 1 a check failed or a request looked like it held a secret,

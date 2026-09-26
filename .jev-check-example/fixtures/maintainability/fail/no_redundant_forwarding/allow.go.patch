@@ -1,0 +1,20 @@
+diff --git a/allow.go b/allow.go
+new file mode 100644
+index 0000000..9c3de5d
+--- /dev/null
++++ b/allow.go
+@@ -0,0 +1,14 @@
++package main
++
++import (
++	"fmt"
++	"slices"
++)
++
++func checkAllowed(allowed []string, host string) error {
++	contains := func(list []string, item string) bool { return slices.Contains(list, item) }
++	if !contains(allowed, host) {
++		return fmt.Errorf("host %s is not in the allow list", host)
++	}
++	return nil
++}

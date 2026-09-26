@@ -1,0 +1,10 @@
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000..19566da
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,4 @@
++.env
++output/
++__pycache__/
++/jev-check

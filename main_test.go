@@ -104,7 +104,7 @@ func writeSettings(t *testing.T, dir, content string) {
 func gitInit(t *testing.T, dir string) {
 	t.Helper()
 	gitRun(t, dir, "init", "-q")
-	writeFile(t, filepath.Join(dir, ".git", "info", "exclude"), ".jev-check/.env\noutput/\n")
+	writeFile(t, filepath.Join(dir, ".git", "info", "exclude"), ".jev-check/.env\n.jev-check/output/\n")
 	writeSettings(t, dir, fakeSettings)
 }
 
@@ -167,7 +167,7 @@ func TestAsk(t *testing.T) {
 
 	out = wantCode(t, 1, "ask", "public-release", "--file", patch, "--threshold", "0.5")
 	project, _ := os.Getwd()
-	for _, line := range []string{"FAIL  0.3  english_only\n", "ok    0.9  no_personal_info\n", "saved: " + filepath.Join(project, "output") + "/"} {
+	for _, line := range []string{"FAIL  0.3  english_only\n", "ok    0.9  no_personal_info\n", "saved: " + filepath.Join(project, ".jev-check", "output") + "/"} {
 		if !strings.Contains(out, line) {
 			t.Errorf("missing %q in:\n%s", line, out)
 		}
@@ -266,8 +266,8 @@ func TestGate(t *testing.T) {
 	gitInit(t, repo)
 	writeFile(t, filepath.Join(repo, "app.py"), "print(\"hello\")\n")
 	writeFile(t, filepath.Join(repo, "README.md"), "# doc\n")
-	writeFile(t, filepath.Join(repo, "output", "log"), "x\n")
-	writeFile(t, filepath.Join(repo, "project-context.json"), `{ "purpose": "Test project.", "exclude": ["output/"],
+	writeFile(t, filepath.Join(repo, ".jev-check", "output", "log"), "x\n")
+	writeFile(t, configPath(repo), `{ "purpose": "Test project.", "exclude": [".jev-check/output/"],
   "checks": [{ "check": "public-release", "threshold": 0.5, "per_question": { "no_personal_info": 0.2 }, "skip": ["*.md"] }] }`)
 
 	var state struct {
@@ -278,7 +278,7 @@ func TestGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	slices.Sort(state.Tree)
-	if fmt.Sprint(state.Project) != "map[purpose:Test project.]" || !slices.Equal(state.Tree, []string{"README.md", "app.py", "project-context.json"}) {
+	if fmt.Sprint(state.Project) != "map[purpose:Test project.]" || !slices.Equal(state.Tree, []string{".jev-check/project-context.json", "README.md", "app.py"}) {
 		t.Errorf("context: %+v", state)
 	}
 
@@ -312,9 +312,12 @@ func TestGate(t *testing.T) {
 		t.Errorf("--no-cache sent %d requests, want 2", len(*requests))
 	}
 	wantCode(t, 2, "gate", repo, "--bogus")
+	if fileExists(filepath.Join(repo, "output")) || !fileExists(filepath.Join(repo, ".jev-check", "output", "cache", "v2")) {
+		t.Error("gate wrote outside .jev-check/output/")
+	}
 
-	writeFile(t, filepath.Join(repo, "project-context.json"), `{ "checks": [{ "check": "public-release", "threshold": 0.2 }] }`)
-	gitRun(t, repo, "add", "project-context.json")
+	writeFile(t, configPath(repo), `{ "checks": [{ "check": "public-release", "threshold": 0.2 }] }`)
+	gitRun(t, repo, "add", ".jev-check/project-context.json")
 	if out := wantCode(t, 0, "gate", repo); !strings.HasSuffix(out, "gate: PASS\n") {
 		t.Errorf("gate output:\n%s", out)
 	}
@@ -324,10 +327,10 @@ func TestGate(t *testing.T) {
 		`{ "checks": [{ "check": "public-release" }] }`,
 		`{ "checks": [] }`,
 	} {
-		writeFile(t, filepath.Join(repo, "project-context.json"), bad)
+		writeFile(t, configPath(repo), bad)
 		wantCode(t, 2, "gate", repo)
 	}
-	writeFile(t, filepath.Join(repo, "project-context.json"), `{ "checks": [{ "check": "public-release", "threshold": 0.2 }] }`)
+	writeFile(t, configPath(repo), `{ "checks": [{ "check": "public-release", "threshold": 0.2 }] }`)
 
 	*requests = nil
 	writeFile(t, filepath.Join(repo, "app.py"), "aws = \"AKIA"+strings.Repeat("Q", 16)+"\"\n")
@@ -348,10 +351,10 @@ func TestEval(t *testing.T) {
 	repo := t.TempDir()
 	gitInit(t, repo)
 	config := func(threshold string) {
-		writeFile(t, filepath.Join(repo, "project-context.json"), `{ "exclude": ["fixtures/"], "checks": [{ "check": "public-release", "threshold": `+threshold+` }] }`)
+		writeFile(t, configPath(repo), `{ "exclude": [".jev-check/fixtures/"], "checks": [{ "check": "public-release", "threshold": `+threshold+` }] }`)
 	}
 	config("0.2")
-	fixtures := filepath.Join(repo, "fixtures", "public-release")
+	fixtures := filepath.Join(repo, ".jev-check", "fixtures", "public-release")
 	wantCode(t, 2, "eval", "public-release", repo) // no fixtures yet
 
 	writeFile(t, filepath.Join(fixtures, "pass", "a.go.patch"), gitPatch(t, "a.go", "package a\n"))
@@ -382,12 +385,12 @@ func TestInvalidAnswers(t *testing.T) {
 	t.Cleanup(func() { jevAnswers = "" })
 	repo := t.TempDir()
 	gitInit(t, repo)
-	writeFile(t, filepath.Join(repo, "project-context.json"), `{"checks":[{"check":"public-release","threshold":0}]}`)
+	writeFile(t, configPath(repo), `{"checks":[{"check":"public-release","threshold":0}]}`)
 	file := writeFile(t, filepath.Join(repo, "x.go"), "package x\n")
 	gitRun(t, repo, "add", "x.go")
-	writeFile(t, filepath.Join(repo, "fixtures/public-release/pass/x.patch"), gitPatch(t, "x", "hello\n"))
+	writeFile(t, filepath.Join(repo, ".jev-check/fixtures/public-release/pass/x.patch"), gitPatch(t, "x", "hello\n"))
 	for _, q := range []string{"english_only", "no_personal_info", "no_outside_paths", "no_private_links", "no_third_party_content", "belongs_in_project"} {
-		writeFile(t, filepath.Join(repo, "fixtures/public-release/fail", q, "x.patch"), gitPatch(t, "x", "hello\n"))
+		writeFile(t, filepath.Join(repo, ".jev-check/fixtures/public-release/fail", q, "x.patch"), gitPatch(t, "x", "hello\n"))
 	}
 	_, questions, _, err := loadCheck(repo, "public-release")
 	if err != nil {
@@ -417,7 +420,7 @@ func TestInvalidAnswers(t *testing.T) {
 	}
 	jevAnswers = ""
 	wantCode(t, 0, "gate", repo)
-	caches, err := filepath.Glob(filepath.Join(repo, "output/cache/v2/*.json"))
+	caches, err := filepath.Glob(filepath.Join(repo, ".jev-check/output/cache/v2/*.json"))
 	if err != nil || len(caches) != 1 {
 		t.Fatalf("cache files: %v, %v", caches, err)
 	}
@@ -449,7 +452,7 @@ func TestGateBlocksRemovedAndContextSecrets(t *testing.T) {
 			requests := setup(t)
 			repo := t.TempDir()
 			gitInit(t, repo)
-			writeFile(t, filepath.Join(repo, "project-context.json"), `{"checks":[{"check":"public-release","threshold":0.5}]}`)
+			writeFile(t, configPath(repo), `{"checks":[{"check":"public-release","threshold":0.5}]}`)
 			secret := "DB_PASSWORD=" + strings.Repeat("p4", 8) + "\n"
 			file := writeFile(t, filepath.Join(repo, "config.txt"), secret+"old\n")
 			gitRun(t, repo, "add", ".")

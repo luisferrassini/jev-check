@@ -1,0 +1,28 @@
+diff --git a/retry.go b/retry.go
+index dd64113..1d8876f 100644
+--- a/retry.go
++++ b/retry.go
+@@ -1,10 +1,21 @@
+ package main
+ 
+ import (
++	"fmt"
+ 	"net/http"
+ 	"time"
+ )
+ 
+-func fetch(client *http.Client, url string) (*http.Response, error) {
+-	return client.Get(url)
++// fetch retries a GET up to attempts times, waiting a little longer each time.
++func fetch(client *http.Client, url string, attempts int) (*http.Response, error) {
++	var lastErr error
++	for i := range attempts {
++		res, err := client.Get(url)
++		if err == nil {
++			return res, nil
++		}
++		lastErr = err
++		time.Sleep(time.Duration(i+1) * 100 * time.Millisecond)
++	}
++	return nil, fmt.Errorf("GET %s failed after %d attempts: %w", url, attempts, lastErr)
+ }

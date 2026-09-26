@@ -1,0 +1,10 @@
+diff --git a/docs/setup.md b/docs/setup.md
+new file mode 100644
+index 0000000..43f0933
+--- /dev/null
++++ b/docs/setup.md
+@@ -0,0 +1,4 @@
++# Setup
++
++I run this on my laptop, `luis-thinkpad`, logged in as `lferrassini`.
++Clone it into `/Users/luis.ferrassini/work/` and it just works.

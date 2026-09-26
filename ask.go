@@ -23,11 +23,11 @@ const askUsage = `Usage:
   jev-check ask <check-name> [state.json] [--file PATH]... [options]
   jev-check ask <questions.json> [state.json] [--file PATH]... [options]
 
-A check name reads input/questions/<name>.json and, if it exists,
-input/states/<name>.json, from the current directory, else from the checks
-bundled in the binary. A first argument ending in .json is a path instead.
-The API key, endpoint, and model come from ./.jev-check/.env (see jev-check
-doctor). Answers go to ./output/.
+A check name reads .jev-check/input/questions/<name>.json and, if it exists,
+.jev-check/input/states/<name>.json, from the current directory, else from the
+checks bundled in the binary. A first argument ending in .json is a path
+instead. The API key, endpoint, and model come from ./.jev-check/.env (see
+jev-check doctor). Answers go to ./.jev-check/output/.
 Each --file PATH adds that file to the state as files[PATH] = <content>.
 
 Options:
@@ -65,7 +65,7 @@ type answer struct {
 }
 
 const listUsage = `Usage: jev-check list [DIR]   (default: .)
-Lists the bundled checks and DIR/input/questions/. A check in DIR shadows a bundled one.
+Lists the bundled checks and DIR/.jev-check/input/questions/. A check in DIR shadows a bundled one.
 `
 
 func listCmd(args []string, stdout, _ io.Writer) (int, error) {
@@ -80,8 +80,8 @@ func listCmd(args []string, stdout, _ io.Writer) (int, error) {
 	if info, err := os.Stat(project); err != nil || !info.IsDir() {
 		return 0, fmt.Errorf("%s is not a folder", project)
 	}
-	names, _ := fs.Glob(bundled, "input/questions/*.json")
-	entries, err := os.ReadDir(filepath.Join(project, "input", "questions"))
+	names, _ := fs.Glob(bundled, bundleDir+"/input/questions/*.json")
+	entries, err := os.ReadDir(filepath.Join(project, jevDir, "input", "questions"))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return 0, err
 	}
@@ -98,7 +98,7 @@ func listCmd(args []string, stdout, _ io.Writer) (int, error) {
 			continue
 		}
 		if !checkName.MatchString(name) {
-			return 0, fmt.Errorf("%s: check names use only letters, digits, - and _", filepath.Join(project, "input", "questions", file))
+			return 0, fmt.Errorf("%s: check names use only letters, digits, - and _", filepath.Join(project, jevDir, "input", "questions", file))
 		}
 		c, err := findCheck(project, name)
 		if err != nil {
@@ -162,7 +162,7 @@ func askCmd(args []string, stdout, _ io.Writer) (int, error) {
 		return 0, errors.New("expected a check and an optional state file (see --help)")
 	}
 
-	// ask runs in the working directory: its input/, .jev-check/.env, and output/.
+	// ask runs in the working directory: its .jev-check/input/, .jev-check/.env, and .jev-check/output/.
 	project, err := filepath.Abs(".")
 	if err != nil {
 		return 0, err
@@ -226,9 +226,13 @@ func askCmd(args []string, stdout, _ io.Writer) (int, error) {
 	return 0, nil
 }
 
+// bundleDir is where this repository keeps the published checks. It is tracked,
+// unlike the repository's own .jev-check/, so a clone can build the bundle.
+const bundleDir = ".jev-check-example"
+
 // bundled holds the published checks, so an installed binary needs no files beside it.
 //
-//go:embed input/questions/*.json input/states/*.json
+//go:embed .jev-check-example/input/questions/*.json .jev-check-example/input/states/*.json
 var bundled embed.FS
 
 // foundCheck is a named check's question file and its optional default state.
@@ -238,17 +242,19 @@ type foundCheck struct {
 	data, state  []byte
 }
 
-// findCheck reads project/input/questions/<name>.json, else the bundled file of that name.
+// findCheck reads project/.jev-check/input/questions/<name>.json, else the bundled file of that name.
 // The default state comes from the same place, so a project check never inherits a bundled state.
 // Only a missing file falls back to the bundle; any other read error is returned.
 func findCheck(project, name string) (foundCheck, error) {
 	read := func(kind string) ([]byte, error) {
-		return os.ReadFile(filepath.Join(project, "input", kind, name+".json"))
+		return os.ReadFile(filepath.Join(project, jevDir, "input", kind, name+".json"))
 	}
-	c := foundCheck{path: filepath.Join(project, "input", "questions", name+".json"), source: "project"}
+	c := foundCheck{path: filepath.Join(project, jevDir, "input", "questions", name+".json"), source: "project"}
 	data, err := read("questions")
 	if errors.Is(err, fs.ErrNotExist) {
-		read = func(kind string) ([]byte, error) { return bundled.ReadFile("input/" + kind + "/" + name + ".json") }
+		read = func(kind string) ([]byte, error) {
+			return bundled.ReadFile(bundleDir + "/input/" + kind + "/" + name + ".json")
+		}
 		c = foundCheck{path: "bundled input/questions/" + name + ".json", source: "bundled"}
 		data, err = read("questions")
 	}
@@ -387,7 +393,7 @@ func callJev(project, name string, cfg settings, req request) (response, string,
 		return res, "", fmt.Errorf("unexpected API response: %w", err)
 	}
 
-	dir := filepath.Join(project, "output")
+	dir := filepath.Join(project, jevDir, "output")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return res, "", err
 	}

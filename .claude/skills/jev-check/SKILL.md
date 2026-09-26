@@ -1,6 +1,6 @@
 ---
 name: jev-check
-description: Gate staged task changes on a project's Jev checks, or change those checks. Use in a project that has a project-context.json. It is a policy gate, not a substitute for the project's own tests.
+description: Gate staged task changes on a project's Jev checks, or change those checks. Use in a project that has a .jev-check/project-context.json. It is a policy gate, not a substitute for the project's own tests.
 ---
 
 # jev-check
@@ -12,7 +12,7 @@ description: Gate staged task changes on a project's Jev checks, or change those
 - The executable is the path the user gave you, quoted. Otherwise it is `jev-check` on `PATH`. If `command -v jev-check` finds nothing, report that it is missing, link the setup guide above, and stop this skill.
 - Run `jev-check --help` first when you are not sure which binary you have.
 - Build it with `go build -o jev-check .` only when the task changes jev-check's own Go source, in its own checkout.
-- `<project>` is the folder that holds `project-context.json`. Pass it explicitly. The tool does not search parent folders. No `project-context.json` is a setup problem: report it and link the setup guide. Leave rules and thresholds to the user.
+- `<project>` is the folder that holds `.jev-check/`, where every jev-check file lives. Pass it explicitly. The tool does not search parent folders. No `.jev-check/project-context.json` is a setup problem, and so is a `project-context.json` left at the project root by an older version: report it and link the setup guide. Leave rules and thresholds to the user.
 
 The user's approval to run the gate covers reruns inside the retry budget below.
 
@@ -33,7 +33,7 @@ Run `jev-check gate <project>` and keep stdout, stderr, and the exit code. Say i
 | --- | --- |
 | Exit 0, `gate: PASS` | Report it next to the project's own tests and checks. A pass does not prove the code works, and excluded or skipped files were not judged. |
 | Exit 0, `nothing staged` | A no-op. If your changes need checking, fix the staging and rerun. Never report a no-op as a pass. |
-| Exit 1, `FAIL` | Each `FAIL <probability> <question>` under `== <check> <file>` names one problem. Report the check, file, question, probability, and threshold from `project-context.json`. Fix a real problem in your own change, then stage the fix again. |
+| Exit 1, `FAIL` | Each `FAIL <probability> <question>` under `== <check> <file>` names one problem. Report the check, file, question, probability, and threshold from `.jev-check/project-context.json`. Fix a real problem in your own change, then stage the fix again. |
 | Exit 1, `SECRET` | `SECRET <location> line N looks like <kind>`: something in the request looks like a secret, and nothing was sent. It can be in a patch, a file name, the project fields, the tree, or a check's questions. Remove it from content you own. Report the location and kind, never the value. |
 | Exit 2 | A usage, setup, or API error, not a judgment. stderr names the cause. Fix a known local setup problem if the task allows it, else report the blocker. |
 
@@ -49,9 +49,9 @@ A pass does not authorize a commit, a reset, or work outside the task.
 
 ## Changing a check (only when asked)
 
-A check is `input/questions/<name>.json` in the project, or a bundled check (`jev-check list` shows which). Its threshold is in `project-context.json`, and `fixtures/<name>/` proves the threshold.
+A check is `.jev-check/input/questions/<name>.json` in the project, or a bundled check (`jev-check list` shows which). Its threshold is in `.jev-check/project-context.json`, and `.jev-check/fixtures/<name>/` proves the threshold.
 
-1. Add the case that prompted the change: a missed problem as `fixtures/<name>/fail/<question>/<file>.patch`, a wrongly failed clean file as `fixtures/<name>/pass/<file>.patch`. Make each patch by staging the file at its real path, in a disposable repository if the file is synthetic, and running `git diff --cached --relative -- <file>`.
+1. Add the case that prompted the change: a missed problem as `.jev-check/fixtures/<name>/fail/<question>/<file>.patch`, a wrongly failed clean file as `.jev-check/fixtures/<name>/pass/<file>.patch`. Make each patch by staging the file at its real path, in a disposable repository if the file is synthetic, and running `git diff --cached --relative -- <file>`.
 2. Edit the question so yes is the good outcome, with concrete examples in `criteria`.
 3. Run `jev-check eval <name> <project>`. Done when it exits 0 with `eval: 0 misses`, there is at least one pass fixture, every yes/no question has a fail fixture, and for each question `highest-fail < threshold <= lowest-pass`. A pass fixture scoring exactly the threshold passes.
 4. If no threshold separates a question's fixtures, report the scores and a proposed redesign. The user decides whether to reword, drop, or re-threshold it.
