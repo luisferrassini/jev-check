@@ -50,7 +50,7 @@ func TestShippedConfigs(t *testing.T) {
 	}
 	for name, config := range map[string]string{"project-context.json": string(real), "README": readmeConfig(t)} {
 		repo := t.TempDir()
-		gitRun(t, repo, "init", "-q")
+		gitInit(t, repo)
 		writeFile(t, filepath.Join(repo, "project-context.json"), config)
 		if out := wantCode(t, 0, "gate", repo); out != "nothing staged\n" {
 			t.Errorf("%s: gate: %s", name, out)

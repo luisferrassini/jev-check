@@ -12,7 +12,7 @@ import (
 func gitPatch(t *testing.T, path, content string) string {
 	t.Helper()
 	repo := t.TempDir()
-	gitRun(t, repo, "init", "-q")
+	gitInit(t, repo)
 	writeFile(t, filepath.Join(repo, path), content)
 	gitRun(t, repo, "add", "--", path)
 	out, err := git(repo, "diff", "--cached", "--", path)
@@ -31,7 +31,7 @@ const twoQuestions = `{"questions":{
 func evalProject(t *testing.T, config string) (string, string) {
 	t.Helper()
 	repo := t.TempDir()
-	gitRun(t, repo, "init", "-q")
+	gitInit(t, repo)
 	writeFile(t, filepath.Join(repo, "input/questions/two.json"), twoQuestions)
 	writeFile(t, filepath.Join(repo, "project-context.json"), `{"exclude":["fixtures/","input/"],"checks":[`+config+`]}`)
 	return repo, filepath.Join(repo, "fixtures", "two")
@@ -125,7 +125,7 @@ func TestPatchPaths(t *testing.T) {
 
 	// Real git patches for each supported kind, in a repository with one commit.
 	src := t.TempDir()
-	gitRun(t, src, "init", "-q")
+	gitInit(t, src)
 	commit := func() { gitRun(t, src, "-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-qm", "x") }
 	names := map[string]string{
 		"modified": "dir/mod file.go", "deleted": "gone.go", "renamed": "old.go", "pure": "p old.txt",
@@ -161,7 +161,7 @@ func TestPatchPaths(t *testing.T) {
 	}
 	// Git quotes non-ASCII paths by default; with core.quotePath=false it writes them as they are.
 	raw := t.TempDir()
-	gitRun(t, raw, "init", "-q")
+	gitInit(t, raw)
 	writeFile(t, filepath.Join(raw, "raw ü.txt"), "x\n")
 	gitRun(t, raw, "add", ".")
 	patch, err := git(raw, "-c", "core.quotePath=false", "diff", "--cached")
@@ -188,7 +188,7 @@ func TestPatchPaths(t *testing.T) {
 	// Unsupported or unsafe patches stop the run without echoing their content.
 	multi, _ := git(src, "diff", "--cached", "-M")
 	bin := t.TempDir()
-	gitRun(t, bin, "init", "-q")
+	gitInit(t, bin)
 	writeFile(t, filepath.Join(bin, "b.bin"), "\x00\x01secret-content\x00")
 	gitRun(t, bin, "add", ".")
 	binary, _ := git(bin, "diff", "--cached")

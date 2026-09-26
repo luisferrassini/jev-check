@@ -77,7 +77,7 @@ func TestAskPreflight(t *testing.T) {
 	}
 
 	// Nothing blocked is saved or cached, and the credential is never needed.
-	t.Setenv("TYPESAFE_API_KEY", "")
+	writeSettings(t, ".", "")
 	wantBlocked(t, requests, awsKey, "ask", "public-release", "--file", leaky)
 	if fileExists("output") {
 		t.Error("a blocked request created output/")
@@ -96,7 +96,7 @@ func TestSecretsSafeLabel(t *testing.T) {
 func TestGatePreflight(t *testing.T) {
 	requests := setup(t)
 	repo := t.TempDir()
-	gitRun(t, repo, "init", "-q")
+	gitInit(t, repo)
 	config := func(extra string) {
 		writeFile(t, filepath.Join(repo, "project-context.json"), `{`+extra+` "exclude":["input/"], "checks":[{"check":"public-release","threshold":0.2}]}`)
 	}
@@ -145,7 +145,7 @@ func TestGatePreflight(t *testing.T) {
 func TestEvalPreflight(t *testing.T) {
 	requests := setup(t)
 	repo := t.TempDir()
-	gitRun(t, repo, "init", "-q")
+	gitInit(t, repo)
 	writeFile(t, filepath.Join(repo, "project-context.json"), `{"exclude":["fixtures/"],"checks":[{"check":"public-release","threshold":0.2}]}`)
 	fixtures := filepath.Join(repo, "fixtures", "public-release")
 	writeFile(t, filepath.Join(fixtures, "pass", "a.go.patch"), gitPatch(t, "a.go", "package a\n"))

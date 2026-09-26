@@ -1,4 +1,5 @@
 .env
+.jev-check/.env
 output/
 __pycache__/
 /jev-check

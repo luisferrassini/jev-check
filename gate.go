@@ -15,10 +15,12 @@ import (
 	"strings"
 )
 
-const gateUsage = `Usage: jev-check gate [DIR] [--no-cache]   (default: .)
+const gateUsage = `Usage: jev-check gate [DIR] [--no-cache] [--model ID]   (default: .)
 Sends one patch per staged file to each check in DIR/project-context.json.
 Answers are cached in DIR/output/cache/ by model, questions, project, and patch,
 so an unchanged file is not sent twice. --no-cache always calls the API.
+The key, endpoint, and model come from DIR/.jev-check/.env; --model ID
+overrides its model (see jev-check doctor).
 A check's optional "coding_style" names a document in DIR; its working-tree
 contents go to that check as state.coding_style, even when exclude or skip
 lists it. Every request is scanned for secrets first. A secret in the project fields or
@@ -38,14 +40,21 @@ type gateCheck struct {
 }
 
 func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
-	dir, noCache := "", false
-	for _, arg := range args {
-		switch {
+	dir, model, noCache := "", "", false
+	for i := 0; i < len(args); i++ {
+		switch arg := args[i]; {
 		case isHelp(arg):
 			fmt.Fprint(stdout, gateUsage)
 			return 0, nil
 		case arg == "--no-cache":
 			noCache = true
+		case arg == "--model":
+			m, err := modelFlag(args, i)
+			if err != nil {
+				return 0, err
+			}
+			model = m
+			i++
 		case strings.HasPrefix(arg, "-"):
 			return 0, fmt.Errorf("unknown option %s (see --help)", arg)
 		case dir != "":
@@ -55,6 +64,10 @@ func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 		}
 	}
 	dir, err := filepath.Abs(cmp.Or(dir, "."))
+	if err != nil {
+		return 0, err
+	}
+	cfg, err := loadSettings(dir, model)
 	if err != nil {
 		return 0, err
 	}
@@ -78,7 +91,7 @@ func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	// A coding_style document counts as shared, even when one check uses it.
 	err = styleSecrets(styles)
 	if err == nil {
-		err = scanRequest(request{Model: defaultModel, State: state})
+		err = scanRequest(request{Model: cfg.model, State: state})
 	}
 	if err != nil {
 		fmt.Fprintf(stdout, "%v\ngate: FAIL\n", err)
@@ -141,7 +154,7 @@ func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 			fileState := maps.Clone(state)
 			fileState["files"] = map[string]string{file + ".patch": patch}
 			addStyle(fileState, stylePaths[i], styles)
-			res, cached, err := cachedJev(dir, c.Check, request{Model: defaultModel, Questions: questions[i], State: fileState}, noCache, stderr)
+			res, cached, err := cachedJev(dir, c.Check, cfg, request{Model: cfg.model, Questions: questions[i], State: fileState}, noCache, stderr)
 			var found secretsFound
 			switch {
 			case errors.As(err, &found):
@@ -169,7 +182,7 @@ func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 // project, and patch were asked before, else it calls Jev and caches the answers.
 // The tree is left out of the key, so adding a file does not miss the cache for the others.
 // Thresholds are not in the key either: the gate judges cached answers again on every run.
-func cachedJev(project, name string, req request, noCache bool, stderr io.Writer) (response, bool, error) {
+func cachedJev(project, name string, cfg settings, req request, noCache bool, stderr io.Writer) (response, bool, error) {
 	// Scan before the cache, so an old answer never hides a secret.
 	if err := scanRequest(req); err != nil {
 		return response{}, false, err
@@ -186,7 +199,7 @@ func cachedJev(project, name string, req request, noCache bool, stderr io.Writer
 	if !noCache && readJSON(path, &res) == nil && validateAnswers(res.Answers, req.Questions) == nil {
 		return res, true, nil
 	}
-	res, _, err = callJev(project, name, req)
+	res, _, err = callJev(project, name, cfg, req)
 	if err != nil {
 		return res, false, err
 	}

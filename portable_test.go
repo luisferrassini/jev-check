@@ -84,7 +84,7 @@ func TestProjectChecks(t *testing.T) {
 	// gate DIR uses DIR's own definition of a check.
 	for _, q := range []string{"first", "second"} {
 		repo := t.TempDir()
-		gitRun(t, repo, "init", "-q")
+		gitInit(t, repo)
 		writeFile(t, filepath.Join(repo, "input/questions/mine.json"), `{"questions":{"`+q+`":{"type":"noul"}}}`)
 		writeFile(t, filepath.Join(repo, "project-context.json"), `{"exclude":["input/"],"checks":[{"check":"mine","threshold":0.5}]}`)
 		writeFile(t, filepath.Join(repo, "a.txt"), "a\n")
@@ -102,12 +102,6 @@ func TestProjectKeyAndOutput(t *testing.T) {
 	project, _ := os.Getwd()
 	file := writeFile(t, filepath.Join(project, "x.txt"), "hello\n")
 
-	// The environment wins over the project's .env.
-	writeFile(t, filepath.Join(project, ".env"), "TYPESAFE_API_KEY=wrong\n")
-	wantCode(t, 0, "ask", "public-release", "--file", file)
-	t.Setenv("TYPESAFE_API_KEY", "")
-	wantCode(t, 2, "ask", "public-release", "--file", file)
-	writeFile(t, filepath.Join(project, ".env"), "TYPESAFE_API_KEY=test\n")
 	out := wantCode(t, 0, "ask", "public-release", "--file", file)
 	saved := strings.TrimSpace(out[strings.Index(out, "saved: ")+len("saved: "):])
 	if !strings.HasPrefix(saved, filepath.Join(project, "output")+"/") || !fileExists(saved) {
@@ -135,7 +129,7 @@ func TestInit(t *testing.T) {
 	}
 
 	repo := t.TempDir()
-	gitRun(t, repo, "init", "-q")
+	gitInit(t, repo)
 	sub := filepath.Join(repo, "sub dir")
 	os.Mkdir(sub, 0o755)
 	out := wantCode(t, 0, "init", sub)
@@ -162,13 +156,13 @@ func TestInit(t *testing.T) {
 		t.Error("second init changed the config")
 	}
 	link := t.TempDir()
-	gitRun(t, link, "init", "-q")
+	gitInit(t, link)
 	os.Symlink("elsewhere.json", filepath.Join(link, "project-context.json"))
 	wantCode(t, 2, "init", link)
 
 	// Concurrent runs create one complete config.
 	race := t.TempDir()
-	gitRun(t, race, "init", "-q")
+	gitInit(t, race)
 	var wg sync.WaitGroup
 	codes := make(chan int, 8)
 	for range 8 {
@@ -203,7 +197,6 @@ func TestInstalledBinary(t *testing.T) {
 	os.Chmod(bin, 0o555)
 	t.Cleanup(func() { os.Chmod(bin, 0o755) })
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("TYPESAFE_API_KEY", "")
 	fresh := t.TempDir()
 	for _, args := range [][]string{{"--help"}, {"list"}, {"ask", "example", "--dry-run"}} {
 		cmd := exec.Command("jev-check", args...)

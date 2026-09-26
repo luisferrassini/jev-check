@@ -22,6 +22,10 @@ Commands:
                             judge a saved answer again, without the API
   gate [DIR]                run DIR's checks on its staged files
   eval <check> [DIR]        test a check's thresholds on DIR/fixtures/<check>/
+  doctor [DIR]              show DIR's settings and setup problems, offline
+
+ask, gate, and eval read the API key, endpoint, and model from the project's
+.jev-check/.env and from nothing else (see jev-check doctor --help).
 
 Exit codes: 0 ok, 1 a check failed or a request looked like it held a secret,
 2 usage or API error. A request that looks like it holds a secret is never
@@ -37,7 +41,7 @@ func main() {
 func run(args []string, stdout, stderr io.Writer) int {
 	commands := map[string]command{
 		"init": initCmd, "list": listCmd, "ask": askCmd, "context": contextCmd,
-		"secrets": secretsCmd, "judge": judgeCmd, "gate": gateCmd, "eval": evalCmd,
+		"secrets": secretsCmd, "judge": judgeCmd, "gate": gateCmd, "eval": evalCmd, "doctor": doctorCmd,
 	}
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)

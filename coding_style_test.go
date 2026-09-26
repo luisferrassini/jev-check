@@ -12,7 +12,7 @@ import (
 func styleRepo(t *testing.T, checks string) string {
 	t.Helper()
 	repo := t.TempDir()
-	gitRun(t, repo, "init", "-q")
+	gitInit(t, repo)
 	writeFile(t, filepath.Join(repo, "input/questions/other.json"), `{"questions":{"other":{"type":"noul"}}}`)
 	styleConfig(t, repo, checks)
 	writeFile(t, filepath.Join(repo, "a.go"), "package a\n")

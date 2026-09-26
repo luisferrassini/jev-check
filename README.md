@@ -70,25 +70,34 @@ jev-check init
 
 The `public-release` check asks whether each file can go into a public GitHub repository as it is. It does not judge whether the code works. See [Checks](#checks) for the others.
 
-Tell Git to ignore the key file and the saved answers:
+Tell Git to ignore the settings file and the saved answers:
 
 ```bash
-printf '%s\n' .env output/ >> .gitignore
+printf '%s\n' .jev-check/.env output/ >> .gitignore
 ```
 
 ### 5. Add your API key
 
-Get a key at https://console.typesafe.ai/keys. Then, still in `"$demo"`, create `.env` only if it does not exist yet, and put your key after the `=`:
+Get a key at https://console.typesafe.ai/keys. Then, still in `"$demo"`, create `.jev-check/.env` only if it does not exist yet, and put your key after the `=`:
 
 ```bash
-[ -e .env ] || printf 'TYPESAFE_API_KEY=\n' > .env
+mkdir -p .jev-check
+[ -e .jev-check/.env ] || printf 'TYPESAFE_API_KEY=\n' > .jev-check/.env
 ```
 
-A `TYPESAFE_API_KEY` set in the environment wins over `.env`. The key is sent only to the Jev API.
+jev-check reads the key only from this file. It ignores `TYPESAFE_API_KEY` in the environment and your project's own `.env`. See [Configuration](#configuration).
+
+Check the setup before the first paid request:
+
+```bash
+jev-check doctor
+```
+
+It prints one `ok` or `FAIL` line each for the settings file, the endpoint, the model, the key (`set` or `missing`, never the value), `project-context.json`, and Git and `output/`. It calls no API, so it cannot tell whether the key is valid. Fix any `FAIL` line and run it again until it ends with `doctor: ok`.
 
 ### 6. Make your first live request
 
-`ask` and `gate` call the API. `list`, `init`, `context`, and `--dry-run` do not.
+`ask` and `gate` call the API. `list`, `init`, `context`, `doctor`, and `--dry-run` do not.
 
 ```bash
 jev-check ask example
@@ -153,13 +162,18 @@ Go to your project's root folder and repeat steps 4 to 7 there, without the `mkt
 | `jev-check: command not found` | Add `$(go env GOBIN)`, or `$(go env GOPATH)/bin`, to your `PATH`. |
 | `open .../project-context.json: no such file or directory` | You are not in the project folder, or it has no configuration yet. `cd` into the project, or pass it as `jev-check gate <project>`, and run `jev-check init` if needed. There is no search in parent folders. |
 | `fatal: not a git repository` | Run `git init` in the project, or point at the right folder. |
-| `set TYPESAFE_API_KEY in the environment or in .../.env` | Add the key as in step 5. |
+| `set TYPESAFE_API_KEY in .../.jev-check/.env` | Add the key as in step 5. A key in the environment or in the project's `.env` is ignored. |
+| `.../.jev-check/.env is tracked by Git` | Run `git rm --cached -- .jev-check/.env` and add `.jev-check/.env` to `.gitignore`. jev-check refuses a settings file that a repository ships. |
+| `JEV_CHECK_ENDPOINT in .../.jev-check/.env must ...` | Fix the endpoint as the message says. See [Configuration](#configuration). |
+| `API call failed: 307 Temporary Redirect` or another 3xx | The endpoint redirects. jev-check does not follow redirects, so set `JEV_CHECK_ENDPOINT` to the final URL. |
 | `API call failed: 401 Unauthorized` | The key is wrong or revoked. Check it in the key console. |
 | `API call failed: ...` with another status or a network error | The service or the network failed. It is exit 2, not a rejected change. Try again later. |
 | `invalid JSON in .../project-context.json` or `check ... needs a threshold from 0 to 1` | Fix the configuration. [Gate](#gate) describes every field. |
 | `nothing staged` | Stage the files with `git add -- <file>`. |
 | A `SECRET` line | Remove the value from the file or the configuration. There is no bypass. |
 | `mkdir .../output: permission denied` | The project folder must be writable. `ask` and `gate` save answers and the cache in `output/`. |
+
+`jev-check doctor [DIR]` checks most of these at once without calling the API.
 
 ## A note from the author
 
@@ -176,7 +190,7 @@ This repo is an wild idea I had to make use of [Jev](https://typesafe.ai/) kinda
 - You can just point the URL at an opensource Jev alternative (I tried [kev](https://github.com/jaredpalmer/kev)) and this tool should work the same way, but don't expect high quality results if you don't know what you are doing (like myself over which is best).
 - I think that a nice idea for the future of Development is that the harnesses and skills will have now a local classifier to unburden the servers with some low-risk decisions. I just don't know how to build that. Take my idea and implement it, just credit me later if you can! XD
 
-> Note from the maintainers, not part of the author's text: jev-check has no endpoint setting yet. The API address, `https://api.typesafe.ai/v1/systemone`, is built into the binary. Pointing it elsewhere means changing `endpoint` in `ask.go` and rebuilding. Other providers are untested.
+> Note from the maintainers, not part of the author's text: set `JEV_CHECK_ENDPOINT` in `.jev-check/.env` to use another service. See [Configuration](#configuration). Other providers are untested.
 
 ### 3. This was kinda vibecoded
 - I don't know too much about the `go` language, my agent just said that it would be better than bash scripts so I went with it. I do have a degree in Computer Science but please, let me know if I made mistakes and how to improve this.
@@ -192,12 +206,12 @@ The bundled checks are built into the binary, so it needs no files beside it. Ev
 | --- | --- |
 | Project configuration | `<project>/project-context.json` (`jev-check init` creates one) |
 | Custom checks and default states | `<project>/input/questions/` and `<project>/input/states/`; a project check shadows a bundled check of the same name |
-| API key | `TYPESAFE_API_KEY` in the environment, else `<project>/.env` |
+| API key, endpoint, and model | `<project>/.jev-check/.env`; see [Configuration](#configuration) |
 | Saved requests and responses | `<project>/output/` |
 | Gate cache | `<project>/output/cache/` |
 | Fixtures | `<project>/fixtures/<check>/` |
 
-`gate`, `eval`, `context`, `init`, and `list` take the project folder as `DIR` (default: the current folder). `ask` uses the current folder. There is no search in parent folders.
+`gate`, `eval`, `context`, `doctor`, `init`, and `list` take the project folder as `DIR` (default: the current folder). `ask` uses the current folder. There is no search in parent folders.
 
 For development, `go build -o jev-check .` still works; in this repository `input/` is project-local, so edits to a check apply without a rebuild. Edits to bundled checks elsewhere need a rebuild.
 
@@ -206,7 +220,7 @@ For development, `go build -o jev-check .` still works; in this repository `inpu
 Older versions read `input/`, `.env`, and `output/` from the binary's folder. To move a project over:
 
 1. Copy your custom `input/questions/<name>.json` files, and any matching `input/states/<name>.json`, into the project.
-2. Export `TYPESAFE_API_KEY`, or put it in the project's `.env`.
+2. Put `TYPESAFE_API_KEY=<key>` in the project's `.jev-check/.env`, and add `.jev-check/.env` to `.gitignore`. The environment variable and the project's `.env` are no longer read. From a project that had the key in `.env`: `mkdir -p .jev-check && grep '^TYPESAFE_API_KEY=' .env > .jev-check/.env`. Run `jev-check doctor` to check.
 3. Expect new answers in the project's `output/`. Old saved answers still work with `jev-check judge <path>`. The old cache is not read.
 
 ## Use it from an agent
@@ -230,6 +244,29 @@ if [ -e "$dst" ]; then diff -u "$dst" "$src"; else mkdir -p "$(dirname "$dst")" 
 ```
 
 It never replaces an existing skill. It shows the difference instead, so you can keep your changes or replace the file yourself. Check that the agent sees the skill in its own skill list.
+
+## Configuration
+
+jev-check reads its settings from `<project>/.jev-check/.env`, and from nothing else. `<project>` is `DIR` for `gate`, `eval`, and `doctor`, and the current folder for `ask`. Each line is `NAME=value`. The value is trimmed, the first nonempty line for a name wins, and other lines are ignored. There is no quoting and no `export`.
+
+| Name | Meaning | Default |
+| --- | --- | --- |
+| `TYPESAFE_API_KEY` | The API key. `ask`, `gate`, and `eval` exit 2 without one when they need to call the API. | none |
+| `JEV_CHECK_ENDPOINT` | The URL that every request is posted to, with the key. | `https://api.typesafe.ai/v1/systemone` |
+| `JEV_CHECK_MODEL` | The model for `ask`, `gate`, and `eval`. `--model ID` on those commands wins over it. `--model ""` is an error. | `jev-latest` |
+
+```bash
+# .jev-check/.env
+TYPESAFE_API_KEY=<your key>
+JEV_CHECK_MODEL=<a pinned model ID>
+```
+
+- Environment variables are not read, and neither is the project's own `.env`, so jev-check never shares your application's secrets file.
+- If Git tracks `.jev-check/.env`, every command that reads it exits 2 and sends nothing. A cloned repository cannot choose where your key goes. Keep `.jev-check/.env` in `.gitignore`. Outside a Git work tree, as `ask` allows, this check is skipped.
+- The key is sent to whatever endpoint is set. The endpoint must be an absolute URL with a host, with no user name, password, or `#fragment`. `https` works for any host. `http` works only for `localhost`, `127.0.0.0/8`, and `::1`. Any other value is exit 2 before any request, including `ask --dry-run`.
+- Redirects are not followed. A 3xx response is an API error, exit 2, so the key never goes to the redirect target.
+- `ask --dry-run` prints the request with the resolved model.
+- `jev-check doctor [DIR]` prints the settings file, the endpoint and model with their sources, whether the key is set, and whether `project-context.json`, Git, and `output/` are usable. It exits 0 when every line is `ok` and 2 otherwise. It never calls the API or prints the key.
 
 ## Gate
 
@@ -349,7 +386,8 @@ mkdir -p "$tmp/fixtures"
 cp -R fixtures/coding-style "$tmp/fixtures/"
 cp CODING_STYLE.md "$tmp/"
 printf '%s\n' '{"exclude":["fixtures/"],"checks":[{"check":"coding-style","threshold":0.5,"coding_style":"CODING_STYLE.md"}]}' > "$tmp/project-context.json"
-jev-check eval coding-style "$tmp" --no-cache   # needs TYPESAFE_API_KEY in the environment
+mkdir -p "$tmp/.jev-check" && cp .jev-check/.env "$tmp/.jev-check/"   # the key
+jev-check eval coding-style "$tmp" --no-cache
 ```
 
 ## Fixtures and eval
@@ -381,7 +419,7 @@ go build -o jev-check .
 
 The same commands run on every pull request and every push to `main`, as the GitHub check `CI / checks` ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). It needs no secrets, so it works on pull requests from forks. Making it a required check is a branch protection setting, not part of the repository.
 
-CI never calls the real API. `jev-check eval <check>` does: it needs `TYPESAFE_API_KEY`, and each run costs API usage. Run it by hand when you change a question or its fixtures, and put its output in the pull request.
+CI never calls the real API. `jev-check eval <check>` does: it needs the key in `.jev-check/.env`, and each run costs API usage. Run it by hand when you change a question or its fixtures, and put its output in the pull request.
 
 ## Contributing a better question
 
@@ -403,6 +441,7 @@ jev-check ask draft.json --file PATH --dry-run   # print the request for a draft
 jev-check context .                              # the project state Jev sees
 jev-check secrets PATCH...                       # the local secret scan alone
 jev-check judge output/<file>.json 0.5           # judge a saved answer again, without the API
+jev-check doctor [DIR]                           # the settings and setup problems, without the API
 jev-check <command> --help
 ```
 
@@ -416,6 +455,7 @@ jev-check <command> --help
 - `judge.go` applies thresholds to answers.
 - `gate.go` runs the checks on one patch per staged file, with a cache.
 - `eval.go` tests a check's thresholds on its fixtures.
+- `settings.go` reads `.jev-check/.env` and holds `doctor`.
 - `main_test.go` and the other `*_test.go` files test every command offline with a fake Jev server. Run `go test ./...`.
 - `input/questions/<name>.json` holds one check. `input/states/<name>.json` is an optional default state for it. Both are built into the binary.
 - `fixtures/<check>/` holds the patches that prove a check's threshold.

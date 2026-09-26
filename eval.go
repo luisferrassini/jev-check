@@ -17,7 +17,7 @@ import (
 	"unicode/utf8"
 )
 
-const evalUsage = `Usage: jev-check eval <check> [DIR] [--no-cache]   (default DIR: .)
+const evalUsage = `Usage: jev-check eval <check> [DIR] [--no-cache] [--model ID]   (default DIR: .)
 Tests a check's thresholds in DIR/project-context.json against DIR/fixtures/<check>/:
 every patch in pass/ must pass every yes/no question, and every patch in
 fail/<question>/ must fail that question. pass/ and fail/<question>/ for every
@@ -30,20 +30,28 @@ It is sent under the path in its headers: the new path, or the old path of a
 deleted file. Binary, mode-only, and multi-file patches are refused.
 
 Every fixture is read, parsed, and scanned for secrets before any is sent.
-Answers share the gate's cache.
+Answers share the gate's cache. The key, endpoint, and model come from
+DIR/.jev-check/.env; --model ID overrides its model (see jev-check doctor).
 Exit 0 no misses, 1 a miss or a secret found, 2 usage, fixture, or API error.
 `
 
 func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	var positional []string
-	noCache := false
-	for _, arg := range args {
-		switch {
+	model, noCache := "", false
+	for i := 0; i < len(args); i++ {
+		switch arg := args[i]; {
 		case isHelp(arg):
 			fmt.Fprint(stdout, evalUsage)
 			return 0, nil
 		case arg == "--no-cache":
 			noCache = true
+		case arg == "--model":
+			m, err := modelFlag(args, i)
+			if err != nil {
+				return 0, err
+			}
+			model = m
+			i++
 		case strings.HasPrefix(arg, "-"):
 			return 0, fmt.Errorf("unknown option %s (see --help)", arg)
 		default:
@@ -55,6 +63,10 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	}
 	name := positional[0]
 	dir, err := filepath.Abs(cmp.Or(append(positional[1:], ".")...))
+	if err != nil {
+		return 0, err
+	}
+	cfg, err := loadSettings(dir, model)
 	if err != nil {
 		return 0, err
 	}
@@ -113,7 +125,7 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 		fileState := maps.Clone(state)
 		fileState["files"] = map[string]string{file + ".patch": string(patch)}
 		addStyle(fileState, stylePaths[0], styles)
-		jobs[i].req = request{Model: defaultModel, Questions: questions[0], State: fileState}
+		jobs[i].req = request{Model: cfg.model, Questions: questions[0], State: fileState}
 	}
 	// A secret in the shared document is reported once, not once per fixture.
 	var blocked []string
@@ -141,7 +153,7 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	misses, positives, negatives := 0, 0, map[string]int{}
 	lowestPass, highestFail := map[string]float64{}, map[string]float64{}
 	for _, job := range jobs {
-		res, _, err := cachedJev(dir, name, job.req, noCache, stderr)
+		res, _, err := cachedJev(dir, name, cfg, job.req, noCache, stderr)
 		if err != nil {
 			return 0, err
 		}

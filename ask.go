@@ -26,12 +26,13 @@ const askUsage = `Usage:
 A check name reads input/questions/<name>.json and, if it exists,
 input/states/<name>.json, from the current directory, else from the checks
 bundled in the binary. A first argument ending in .json is a path instead.
-The API key comes from TYPESAFE_API_KEY, else ./.env. Answers go to ./output/.
+The API key, endpoint, and model come from ./.jev-check/.env (see jev-check
+doctor). Answers go to ./output/.
 Each --file PATH adds that file to the state as files[PATH] = <content>.
 
 Options:
   --threshold N  exit 1 when any yes/no (noul) answer is below N (0 to 1)
-  --model ID     model to use (default: jev-latest)
+  --model ID     model to use (default: JEV_CHECK_MODEL, else jev-latest)
   --dry-run      print the request and exit, without calling the API
 
 Before anything is printed or sent, the whole request is scanned for secrets.
@@ -39,11 +40,6 @@ A finding prints SECRET lines instead, and nothing is sent or saved.
 
 Exit codes: 0 ok, 1 below threshold or a secret found, 2 usage or API error.
 `
-
-// endpoint is a variable so tests can point it at a fake server.
-var endpoint = "https://api.typesafe.ai/v1/systemone"
-
-const defaultModel = "jev-latest"
 
 // A check name is a plain word, so it cannot reach files outside input/.
 var checkName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
@@ -124,7 +120,7 @@ func listCmd(args []string, stdout, _ io.Writer) (int, error) {
 }
 
 func askCmd(args []string, stdout, _ io.Writer) (int, error) {
-	model, threshold, dryRun := defaultModel, -1.0, false
+	model, threshold, dryRun := "", -1.0, false
 	var files, positional []string
 	for i := 0; i < len(args); i++ {
 		switch arg := args[i]; arg {
@@ -133,7 +129,14 @@ func askCmd(args []string, stdout, _ io.Writer) (int, error) {
 			return 0, nil
 		case "--dry-run":
 			dryRun = true
-		case "--file", "--threshold", "--model":
+		case "--model":
+			m, err := modelFlag(args, i)
+			if err != nil {
+				return 0, err
+			}
+			model = m
+			i++
+		case "--file", "--threshold":
 			if i+1 == len(args) {
 				return 0, fmt.Errorf("%s needs a value", arg)
 			}
@@ -141,8 +144,6 @@ func askCmd(args []string, stdout, _ io.Writer) (int, error) {
 			switch arg {
 			case "--file":
 				files = append(files, args[i])
-			case "--model":
-				model = args[i]
 			case "--threshold":
 				t, err := parseThreshold(args[i])
 				if err != nil {
@@ -161,8 +162,12 @@ func askCmd(args []string, stdout, _ io.Writer) (int, error) {
 		return 0, errors.New("expected a check and an optional state file (see --help)")
 	}
 
-	// ask runs in the working directory: its input/, .env, and output/.
+	// ask runs in the working directory: its input/, .jev-check/.env, and output/.
 	project, err := filepath.Abs(".")
+	if err != nil {
+		return 0, err
+	}
+	cfg, err := loadSettings(project, model)
 	if err != nil {
 		return 0, err
 	}
@@ -202,14 +207,14 @@ func askCmd(args []string, stdout, _ io.Writer) (int, error) {
 		stateFiles[path] = string(content)
 	}
 
-	req := request{Model: model, Questions: questions, State: state}
+	req := request{Model: cfg.model, Questions: questions, State: state}
 	if err := scanRequest(req); err != nil {
 		return 0, err
 	}
 	if dryRun {
 		return 0, writeJSON(stdout, req)
 	}
-	res, saved, err := callJev(project, name, req)
+	res, saved, err := callJev(project, name, cfg, req)
 	if err != nil {
 		return 0, err
 	}
@@ -339,29 +344,30 @@ func validateAnswers(answers map[string]answer, questions map[string]json.RawMes
 	return nil
 }
 
-// callJev sends a request and saves it, with the response, under project/output/.
+// callJev sends a request to cfg's endpoint and saves it, with the response, under project/output/.
 // It returns the response and the absolute saved path.
-func callJev(project, name string, req request) (response, string, error) {
+func callJev(project, name string, cfg settings, req request) (response, string, error) {
 	var res response
 	// Every path to the API passes here, so nothing that looks like a secret is sent.
 	if err := scanRequest(req); err != nil {
 		return res, "", err
 	}
-	key, err := apiKey(project)
-	if err != nil {
-		return res, "", err
+	if cfg.key == "" {
+		return res, "", cfg.missingKey()
 	}
 	body, err := json.Marshal(req)
 	if err != nil {
 		return res, "", err
 	}
-	httpReq, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
+	httpReq, err := http.NewRequest(http.MethodPost, cfg.endpoint, bytes.NewReader(body))
 	if err != nil {
 		return res, "", err
 	}
-	httpReq.Header.Set("Authorization", "Bearer "+key)
+	httpReq.Header.Set("Authorization", "Bearer "+cfg.key)
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpRes, err := (&http.Client{Timeout: 120 * time.Second}).Do(httpReq)
+	// A redirect is returned as a 3xx error, so the key never follows it to another host.
+	client := &http.Client{Timeout: 120 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	httpRes, err := client.Do(httpReq)
 	if err != nil {
 		return res, "", fmt.Errorf("API call failed: %w", err)
 	}
@@ -399,22 +405,4 @@ func callJev(project, name string, req request) (response, string, error) {
 		err = f.Close()
 	}
 	return res, f.Name(), err
-}
-
-// apiKey reads TYPESAFE_API_KEY from the environment, else from its line in project/.env.
-func apiKey(project string) (string, error) {
-	if key := os.Getenv("TYPESAFE_API_KEY"); key != "" {
-		return key, nil
-	}
-	envFile := filepath.Join(project, ".env")
-	data, err := os.ReadFile(envFile)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return "", err
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		if key, ok := strings.CutPrefix(line, "TYPESAFE_API_KEY="); ok && strings.TrimSpace(key) != "" {
-			return strings.TrimSpace(key), nil
-		}
-	}
-	return "", fmt.Errorf("set TYPESAFE_API_KEY in the environment or in %s", envFile)
 }

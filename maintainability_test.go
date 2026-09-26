@@ -17,7 +17,7 @@ func TestMaintainabilityGate(t *testing.T) {
 	requests := setup(t)
 	t.Cleanup(func() { jevAnswers = "" })
 	repo := t.TempDir()
-	gitRun(t, repo, "init", "-q")
+	gitInit(t, repo)
 	writeFile(t, filepath.Join(repo, "project-context.json"), `{"purpose":"A CLI.","checks":[
   {"check":"maintainability","threshold":0.5,"per_question":{"no_mixed_output_channels":0.6}}]}`)
 	writeFile(t, filepath.Join(repo, "main.go"), "package main\n")
@@ -64,7 +64,7 @@ func TestMaintainabilityGate(t *testing.T) {
 func TestMaintainabilityCorpus(t *testing.T) {
 	requests := setup(t)
 	repo := t.TempDir()
-	gitRun(t, repo, "init", "-q")
+	gitInit(t, repo)
 	writeFile(t, filepath.Join(repo, "project-context.json"), `{"exclude":["fixtures/"],"checks":[{"check":"maintainability","threshold":0.5}]}`)
 	corpus := filepath.Join(sourceDir, "fixtures", "maintainability")
 	if err := os.CopyFS(filepath.Join(repo, "fixtures", "maintainability"), os.DirFS(corpus)); err != nil {

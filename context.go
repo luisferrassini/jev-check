@@ -156,11 +156,12 @@ func initCmd(args []string, stdout, _ io.Writer) (int, error) {
 	fmt.Fprintf(stdout, `created %s
 Next:
   1. Review it: purpose, rules, exclude, and the public-release check at threshold 0.5.
-  2. Set TYPESAFE_API_KEY in the environment or in %s.
-  3. Add .env and output/ to the project's ignore rules.
-  4. Stage the work you want checked: git add -- <path>
-  5. Run: jev-check gate %s
-`, path, filepath.Join(dir, ".env"), dir)
+  2. Put TYPESAFE_API_KEY=<key> in %s. No other place is read.
+  3. Add .jev-check/.env and output/ to the project's ignore rules.
+  4. Check the setup: jev-check doctor %s
+  5. Stage the work you want checked: git add -- <path>
+  6. Run: jev-check gate %s
+`, path, filepath.Join(dir, settingsFile), dir, dir)
 	return 0, nil
 }
 
