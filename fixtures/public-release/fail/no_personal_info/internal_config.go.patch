@@ -6,7 +6,7 @@ index 0000000..2b5aae7
 @@ -0,0 +1,6 @@
 +package config
 +
-+// Questions about this file go to marta.lopes@gmail.com.
++// Questions about this file go to luis.ferrassini@gmail.com.
 +
 +// DataDir is where the tool keeps its runs.
-+const DataDir = "/home/marta/dev/jev-tool/data"
++const DataDir = "/home/luis/dev/jev-tool/data"
