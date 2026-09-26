@@ -52,7 +52,7 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 		return 0, fmt.Errorf("%s has no check %s", filepath.Join(dir, "project-context.json"), name)
 	}
 	c := p.Checks[i]
-	questions, err := validateChecks([]gateCheck{c})
+	questions, err := validateChecks(dir, []gateCheck{c})
 	if err != nil {
 		return 0, err
 	}
@@ -84,7 +84,7 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 		}
 		fileState := maps.Clone(state)
 		fileState["files"] = map[string]string{file + ".patch": string(patch)}
-		res, _, err := cachedJev(name, request{Model: defaultModel, Questions: questions[0], State: fileState}, noCache, stderr)
+		res, _, err := cachedJev(dir, name, request{Model: defaultModel, Questions: questions[0], State: fileState}, noCache, stderr)
 		return res, err
 	}
 	limit := func(q string) float64 {

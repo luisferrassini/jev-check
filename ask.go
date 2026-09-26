@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"cmp"
+	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,8 +11,10 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -21,7 +24,9 @@ const askUsage = `Usage:
   jev-check ask <questions.json> [state.json] [--file PATH]... [options]
 
 A check name reads input/questions/<name>.json and, if it exists,
-input/states/<name>.json. A first argument ending in .json is a path instead.
+input/states/<name>.json, from the current directory, else from the checks
+bundled in the binary. A first argument ending in .json is a path instead.
+The API key comes from TYPESAFE_API_KEY, else ./.env. Answers go to ./output/.
 Each --file PATH adds that file to the state as files[PATH] = <content>.
 
 Options:
@@ -60,25 +65,56 @@ type answer struct {
 	Score         any                `json:"score"`
 }
 
+const listUsage = `Usage: jev-check list [DIR]   (default: .)
+Lists the bundled checks and DIR/input/questions/. A check in DIR shadows a bundled one.
+`
+
 func listCmd(args []string, stdout, _ io.Writer) (int, error) {
-	if len(args) > 0 {
-		return 0, errors.New("list takes no arguments")
+	if len(args) > 0 && isHelp(args[0]) {
+		fmt.Fprint(stdout, listUsage)
+		return 0, nil
 	}
-	paths, err := filepath.Glob(filepath.Join(root, "input", "questions", "*.json"))
-	if err != nil {
+	if len(args) > 1 {
+		return 0, errors.New("expected at most one DIR")
+	}
+	project := cmp.Or(append(args, ".")...)
+	if info, err := os.Stat(project); err != nil || !info.IsDir() {
+		return 0, fmt.Errorf("%s is not a folder", project)
+	}
+	names, _ := fs.Glob(bundled, "input/questions/*.json")
+	entries, err := os.ReadDir(filepath.Join(project, "input", "questions"))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return 0, err
 	}
-	for _, path := range paths {
-		name := strings.TrimSuffix(filepath.Base(path), ".json")
-		var check struct{ Title, Description string }
-		if err := readJSON(path, &check); err != nil {
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	for i, n := range names {
+		names[i] = path.Base(n)
+	}
+	slices.Sort(names)
+	for _, file := range slices.Compact(names) {
+		name, ok := strings.CutSuffix(file, ".json")
+		if !ok {
+			continue
+		}
+		if !checkName.MatchString(name) {
+			return 0, fmt.Errorf("%s: check names use only letters, digits, - and _", filepath.Join(project, "input", "questions", file))
+		}
+		c, err := findCheck(project, name)
+		if err != nil {
 			return 0, err
 		}
+		var check struct{ Title, Description string }
+		if _, err := parseQuestions(c.path, c.data); err != nil {
+			return 0, err
+		}
+		json.Unmarshal(c.data, &check)
 		state := "needs --file"
-		if fileExists(filepath.Join(root, "input", "states", name+".json")) {
+		if c.state != nil {
 			state = "has default state"
 		}
-		fmt.Fprintf(stdout, "%s [%s]\n  %s\n  %s\n\n", name, state,
+		fmt.Fprintf(stdout, "%s [%s, %s]\n  %s\n  %s\n\n", name, c.source, state,
 			cmp.Or(check.Title, "(no title)"), cmp.Or(check.Description, "(no description)"))
 	}
 	return 0, nil
@@ -122,21 +158,28 @@ func askCmd(args []string, stdout, _ io.Writer) (int, error) {
 		return 0, errors.New("expected a check and an optional state file (see --help)")
 	}
 
-	name, questions, statePath, err := loadCheck(positional[0])
+	// ask runs in the working directory: its input/, .env, and output/.
+	project, err := filepath.Abs(".")
 	if err != nil {
 		return 0, err
 	}
-	if len(positional) == 2 {
-		statePath = positional[1]
-	}
-	if statePath == "" && len(files) == 0 {
-		return 0, fmt.Errorf("check %q has no default state; pass --file PATH", name)
+	name, questions, defaultState, err := loadCheck(project, positional[0])
+	if err != nil {
+		return 0, err
 	}
 	state := map[string]any{}
-	if statePath != "" {
-		if err := readJSON(statePath, &state); err != nil {
-			return 0, err
+	switch {
+	case len(positional) == 2:
+		err = readJSON(positional[1], &state)
+	case defaultState != nil:
+		if err = json.Unmarshal(defaultState, &state); err != nil {
+			err = fmt.Errorf("invalid JSON in the default state of %s: %w", name, err)
 		}
+	case len(files) == 0:
+		err = fmt.Errorf("check %q has no default state; pass --file PATH", name)
+	}
+	if err != nil {
+		return 0, err
 	}
 	if state == nil {
 		return 0, errors.New("state must be an object, not null")
@@ -160,7 +203,7 @@ func askCmd(args []string, stdout, _ io.Writer) (int, error) {
 	if dryRun {
 		return 0, writeJSON(stdout, req)
 	}
-	res, saved, err := callJev(name, req)
+	res, saved, err := callJev(project, name, req)
 	if err != nil {
 		return 0, err
 	}
@@ -172,31 +215,79 @@ func askCmd(args []string, stdout, _ io.Writer) (int, error) {
 	return 0, nil
 }
 
-// loadCheck reads a check by name or by path. It returns the check's name,
-// its questions, and its default state path, which is empty when there is none.
-func loadCheck(arg string) (string, map[string]json.RawMessage, string, error) {
-	name, path, statePath := strings.TrimSuffix(filepath.Base(arg), ".json"), arg, ""
-	if !strings.HasSuffix(arg, ".json") {
-		if !checkName.MatchString(arg) {
-			return "", nil, "", errors.New("check names use only letters, digits, - and _")
-		}
-		path = filepath.Join(root, "input", "questions", arg+".json")
-		if s := filepath.Join(root, "input", "states", arg+".json"); fileExists(s) {
-			statePath = s
-		}
+// bundled holds the published checks, so an installed binary needs no files beside it.
+//
+//go:embed input/questions/*.json input/states/*.json
+var bundled embed.FS
+
+// foundCheck is a named check's question file and its optional default state.
+// path names the question file in errors. source is "project" or "bundled".
+type foundCheck struct {
+	path, source string
+	data, state  []byte
+}
+
+// findCheck reads project/input/questions/<name>.json, else the bundled file of that name.
+// The default state comes from the same place, so a project check never inherits a bundled state.
+// Only a missing file falls back to the bundle; any other read error is returned.
+func findCheck(project, name string) (foundCheck, error) {
+	read := func(kind string) ([]byte, error) {
+		return os.ReadFile(filepath.Join(project, "input", kind, name+".json"))
 	}
+	c := foundCheck{path: filepath.Join(project, "input", "questions", name+".json"), source: "project"}
+	data, err := read("questions")
+	if errors.Is(err, fs.ErrNotExist) {
+		read = func(kind string) ([]byte, error) { return bundled.ReadFile("input/" + kind + "/" + name + ".json") }
+		c = foundCheck{path: "bundled input/questions/" + name + ".json", source: "bundled"}
+		data, err = read("questions")
+	}
+	if err != nil {
+		return c, err
+	}
+	c.data = data
+	c.state, err = read("states")
+	if errors.Is(err, fs.ErrNotExist) {
+		err = nil
+	}
+	return c, err
+}
+
+func parseQuestions(path string, data []byte) (map[string]json.RawMessage, error) {
 	var check struct {
 		Questions map[string]json.RawMessage `json:"questions"`
 	}
-	if err := readJSON(path, &check); errors.Is(err, fs.ErrNotExist) {
-		return "", nil, "", fmt.Errorf("no check %q (run jev-check list)", name)
-	} else if err != nil {
-		return "", nil, "", err
+	if err := json.Unmarshal(data, &check); err != nil {
+		return nil, fmt.Errorf("invalid JSON in %s: %w", path, err)
 	}
 	if len(check.Questions) == 0 {
-		return "", nil, "", fmt.Errorf(`%s needs a non-empty "questions" object`, path)
+		return nil, fmt.Errorf(`%s needs a non-empty "questions" object`, path)
 	}
-	return name, check.Questions, statePath, nil
+	return check.Questions, nil
+}
+
+// loadCheck reads a check by name, from project or the bundle, or by path.
+// It returns the check's name, its questions, and its default state, which is nil when there is none.
+func loadCheck(project, arg string) (string, map[string]json.RawMessage, []byte, error) {
+	name, path := strings.TrimSuffix(filepath.Base(arg), ".json"), arg
+	var data, state []byte
+	var err error
+	switch {
+	case strings.HasSuffix(arg, ".json"):
+		data, err = os.ReadFile(arg)
+	case !checkName.MatchString(arg):
+		return "", nil, nil, errors.New("check names use only letters, digits, - and _")
+	default:
+		var c foundCheck
+		c, err = findCheck(project, arg)
+		path, data, state = c.path, c.data, c.state
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil, nil, fmt.Errorf("no check %q (run jev-check list)", name)
+	} else if err != nil {
+		return "", nil, nil, err
+	}
+	questions, err := parseQuestions(path, data)
+	return name, questions, state, err
 }
 
 // validateAnswers rejects incomplete or invalid answers before they can pass a check.
@@ -242,11 +333,11 @@ func validateAnswers(answers map[string]answer, questions map[string]json.RawMes
 	return nil
 }
 
-// callJev sends a request and saves it, with the response, under output/.
-// It returns the response and the saved path, relative to root.
-func callJev(name string, req request) (response, string, error) {
+// callJev sends a request and saves it, with the response, under project/output/.
+// It returns the response and the absolute saved path.
+func callJev(project, name string, req request) (response, string, error) {
 	var res response
-	key, err := apiKey()
+	key, err := apiKey(project)
 	if err != nil {
 		return res, "", err
 	}
@@ -280,7 +371,7 @@ func callJev(name string, req request) (response, string, error) {
 		return res, "", fmt.Errorf("unexpected API response: %w", err)
 	}
 
-	dir := filepath.Join(root, "output")
+	dir := filepath.Join(project, "output")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return res, "", err
 	}
@@ -297,15 +388,15 @@ func callJev(name string, req request) (response, string, error) {
 	if err == nil {
 		err = f.Close()
 	}
-	return res, filepath.Join("output", filepath.Base(f.Name())), err
+	return res, f.Name(), err
 }
 
-// apiKey reads TYPESAFE_API_KEY from the environment, else from its line in root/.env.
-func apiKey() (string, error) {
+// apiKey reads TYPESAFE_API_KEY from the environment, else from its line in project/.env.
+func apiKey(project string) (string, error) {
 	if key := os.Getenv("TYPESAFE_API_KEY"); key != "" {
 		return key, nil
 	}
-	envFile := filepath.Join(root, ".env")
+	envFile := filepath.Join(project, ".env")
 	data, err := os.ReadFile(envFile)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return "", err
@@ -315,5 +406,5 @@ func apiKey() (string, error) {
 			return strings.TrimSpace(key), nil
 		}
 	}
-	return "", fmt.Errorf("set TYPESAFE_API_KEY in %s", envFile)
+	return "", fmt.Errorf("set TYPESAFE_API_KEY in the environment or in %s", envFile)
 }
