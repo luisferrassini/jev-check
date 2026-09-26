@@ -136,7 +136,45 @@ eval: 0 misses in 21 fixtures
 
 In this run with `jev-latest` on 2026-09-26, every clean fixture scored 0.83 or more and every problem scored 0.22 or less, so a threshold of 0.5 separates them with a wide margin on both sides. Scores vary between runs. A question that could not separate its fixtures was removed.
 
+`coding-style` is opt-in. It judges added or changed code against two rules in a project document: `clear_names` and `actionable_errors`. See [Coding style](#coding-style).
+
 `example` is a first check to try. It runs on a bundled script, so it needs no `--file`.
+
+## Coding style
+
+Keep detailed coding rules in one document, and give it to the checks that need it with `coding_style`:
+
+```json
+{
+  "checks": [
+    { "check": "public-release", "threshold": 0.5 },
+    { "check": "coding-style", "threshold": 0.5, "coding_style": "CODING_STYLE.md" }
+  ]
+}
+```
+
+- `coding_style` names one file, relative to the project folder. Only that check's requests get it, as `state.coding_style` with `path` and `content`. Other checks do not.
+- The file is read from the working tree, like `project-context.json`. Unstaged edits apply at once, and an untracked file works. A file that is deleted in the working tree fails, even if git still has a copy. The patches under review are still the staged ones. Commit the rules with the change that needs them.
+- The file is sent even when `exclude` or `skip` lists it. Those select the files to judge, not the context.
+- The path must stay inside the project, without `..`, absolute paths, or symlinks. The file must be regular UTF-8 text, not empty, with no NUL byte, and at most 65,536 bytes. It is sent exactly as it is. Any problem is exit `2` before any request.
+- A change to the document misses the cache for the checks that use it. A threshold change does not.
+- `jev-check context` adds `coding_styles`, each path once with its contents. It is a preview of all documents, not the exact request of any one check.
+
+This repository's rules are in [`CODING_STYLE.md`](CODING_STYLE.md). Formatting (`gofmt`), `go vet`, and `go test` stay with those tools; the check does not guess whether they ran. A pass from `coding-style` is a judgment over one patch, not proof that the repository follows the rules. It is not in this repository's gate yet. Its calibration is in [`fixtures/coding-style/CALIBRATION.md`](fixtures/coding-style/CALIBRATION.md).
+
+### Evaluating an opt-in check
+
+`eval` needs the check in the project's configuration. To evaluate an opt-in check without changing this repository's gate, copy its fixtures into a disposable project (Bash):
+
+```bash
+tmp="$(mktemp -d)"
+git -C "$tmp" init -q
+mkdir -p "$tmp/fixtures"
+cp -R fixtures/coding-style "$tmp/fixtures/"
+cp CODING_STYLE.md "$tmp/"
+printf '%s\n' '{"exclude":["fixtures/"],"checks":[{"check":"coding-style","threshold":0.5,"coding_style":"CODING_STYLE.md"}]}' > "$tmp/project-context.json"
+jev-check eval coding-style "$tmp" --no-cache   # needs TYPESAFE_API_KEY in the environment
+```
 
 ## Fixtures and eval
 
@@ -189,6 +227,7 @@ jev-check <command> --help
 - `main_test.go` and the other `*_test.go` files test every command offline with a fake Jev server. Run `go test ./...`.
 - `input/questions/<name>.json` holds one check. `input/states/<name>.json` is an optional default state for it. Both are built into the binary.
 - `fixtures/<check>/` holds the patches that prove a check's threshold.
+- `CODING_STYLE.md` holds this repository's coding rules, for people and the `coding-style` check.
 
 ## License
 

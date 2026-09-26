@@ -1,0 +1,41 @@
+diff --git a/sync.go b/sync.go
+new file mode 100644
+index 0000000..8d226f5
+--- /dev/null
++++ b/sync.go
+@@ -0,0 +1,35 @@
++package main
++
++import (
++	"fmt"
++	"os"
++	"path/filepath"
++	"strings"
++)
++
++func handle(data map[string]string, x int, tmp bool) ([]string, error) {
++	var res []string
++	for k, v := range data {
++		if len(res) >= x {
++			break
++		}
++		d := filepath.Join(v, k)
++		if tmp {
++			d = filepath.Join(os.TempDir(), k)
++		}
++		if err := os.MkdirAll(d, 0o755); err != nil {
++			return nil, fmt.Errorf("creating %s: %w", d, err)
++		}
++		res = append(res, strings.ToLower(d))
++	}
++	return res, nil
++}
++
++func syncFolders(folders map[string]string) error {
++	res, err := handle(folders, 3, true)
++	if err != nil {
++		return err
++	}
++	fmt.Println(strings.Join(res, "\n"))
++	return nil
++}

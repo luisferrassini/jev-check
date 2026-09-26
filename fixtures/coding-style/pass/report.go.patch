@@ -1,0 +1,26 @@
+diff --git a/report.go b/report.go
+new file mode 100644
+index 0000000..e330a06
+--- /dev/null
++++ b/report.go
+@@ -0,0 +1,20 @@
++package main
++
++import (
++	"fmt"
++	"io"
++)
++
++// summary counts the results of one run.
++type summary struct {
++	passed, failed int
++}
++
++// write prints one line per count and reports the first write error.
++func (s summary) write(w io.Writer) error {
++	if _, err := fmt.Fprintf(w, "passed: %d\n", s.passed); err != nil {
++		return err
++	}
++	_, err := fmt.Fprintf(w, "failed: %d\n", s.failed)
++	return err
++}

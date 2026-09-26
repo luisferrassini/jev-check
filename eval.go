@@ -84,6 +84,10 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	if len(blocking) == 0 {
 		return 0, fmt.Errorf("check %s has no yes/no (noul) question, so there is no threshold to evaluate", name)
 	}
+	stylePaths, styles, err := loadStyles(dir, []gateCheck{c})
+	if err != nil {
+		return 0, err
+	}
 	state, err := projectState(dir, p)
 	if err != nil {
 		return 0, err
@@ -96,7 +100,6 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 
 	// Read, parse, and scan every fixture before the first cache lookup or API call,
 	// so a bad fixture late in the list never lets earlier ones through.
-	var blocked []string
 	for i, job := range jobs {
 		patch, err := os.ReadFile(filepath.Join(fixtures, job.rel))
 		if err != nil {
@@ -109,9 +112,18 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 		}
 		fileState := maps.Clone(state)
 		fileState["files"] = map[string]string{file + ".patch": string(patch)}
+		addStyle(fileState, stylePaths[0], styles)
 		jobs[i].req = request{Model: defaultModel, Questions: questions[0], State: fileState}
-		if err := scanRequest(jobs[i].req); err != nil {
-			blocked = append(blocked, fmt.Sprintf("== %s\n%v", safeLabel(job.rel, "a fixture"), err))
+	}
+	// A secret in the shared document is reported once, not once per fixture.
+	var blocked []string
+	if err := styleSecrets(styles); err != nil {
+		blocked = append(blocked, err.Error())
+	} else {
+		for _, job := range jobs {
+			if err := scanRequest(job.req); err != nil {
+				blocked = append(blocked, fmt.Sprintf("== %s\n%v", safeLabel(job.rel, "a fixture"), err))
+			}
 		}
 	}
 	if blocked != nil {
