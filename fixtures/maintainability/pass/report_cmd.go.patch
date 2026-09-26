@@ -1,0 +1,19 @@
+diff --git a/report_cmd.go b/report_cmd.go
+index dcf6ccc..50a1b7c 100644
+--- a/report_cmd.go
++++ b/report_cmd.go
+@@ -7,11 +7,12 @@ import (
+ )
+ 
+ type report struct {
+-	Checks []string `json:"checks"`
++	Checks  []string `json:"checks"`
++	Version string   `json:"version"`
+ }
+ 
+ // runReport prints the report. With --json, stdout holds only the JSON report.
+ func runReport(checks []string) error {
+ 	fmt.Println("building report...")
+-	return json.NewEncoder(os.Stdout).Encode(report{Checks: checks})
++	return json.NewEncoder(os.Stdout).Encode(report{Checks: checks, Version: "1"})
+ }

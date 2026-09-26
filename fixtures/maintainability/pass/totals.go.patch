@@ -1,0 +1,14 @@
+diff --git a/totals.go b/totals.go
+index 5e61d9f..afd0436 100644
+--- a/totals.go
++++ b/totals.go
+@@ -7,8 +7,7 @@ import (
+ )
+ 
+ func printTotals(w io.Writer, names []string, totals map[string]int) {
+-	sorted := func(list []string) []string { return slices.Sorted(slices.Values(list)) }
+-	for _, name := range sorted(names) {
++	for _, name := range slices.Sorted(slices.Values(names)) {
+ 		fmt.Fprintf(w, "%s=%d\n", name, totals[name])
+ 	}
+ }

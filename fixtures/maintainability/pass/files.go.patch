@@ -1,0 +1,19 @@
+diff --git a/files.go b/files.go
+new file mode 100644
+index 0000000..269429f
+--- /dev/null
++++ b/files.go
+@@ -0,0 +1,13 @@
++package main
++
++import "os"
++
++// withFile opens path, runs fn on it, and always closes it.
++func withFile(path string, fn func(*os.File) error) error {
++	f, err := os.Open(path)
++	if err != nil {
++		return err
++	}
++	defer f.Close()
++	return fn(f)
++}

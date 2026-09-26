@@ -1,0 +1,28 @@
+diff --git a/result_json.go b/result_json.go
+new file mode 100644
+index 0000000..61422a6
+--- /dev/null
++++ b/result_json.go
+@@ -0,0 +1,22 @@
++package main
++
++import (
++	"encoding/json"
++	"os"
++)
++
++// result is the only thing written to stdout. Schema:
++// {"status": "ok" | "partial", "processed": N, "skipped": [names]}
++type result struct {
++	Status    string   `json:"status"`
++	Processed int      `json:"processed"`
++	Skipped   []string `json:"skipped"`
++}
++
++func writeResult(processed int, skipped []string) error {
++	status := "ok"
++	if len(skipped) > 0 {
++		status = "partial"
++	}
++	return json.NewEncoder(os.Stdout).Encode(result{status, processed, skipped})
++}

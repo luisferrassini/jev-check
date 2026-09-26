@@ -1,0 +1,21 @@
+diff --git a/fields.go b/fields.go
+new file mode 100644
+index 0000000..86109dd
+--- /dev/null
++++ b/fields.go
+@@ -0,0 +1,15 @@
++package main
++
++import "errors"
++
++// validateAccount checks the fields a new account needs against the site's rules.
++func validateAccount(rules Rules, account Account) error {
++	check := func(field, value string) error {
++		return rules.Validate(field, value)
++	}
++	return errors.Join(
++		check("name", account.Name),
++		check("email", account.Email),
++		check("country", account.Country),
++	)
++}

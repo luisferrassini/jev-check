@@ -1,0 +1,13 @@
+diff --git a/subscriptions.go b/subscriptions.go
+new file mode 100644
+index 0000000..d3b6b65
+--- /dev/null
++++ b/subscriptions.go
+@@ -0,0 +1,7 @@
++package main
++
++// CancelSubscription ends a customer's subscription at the end of the paid period.
++// Support tools and the billing webhook both call it, so the policy lives in one place.
++func CancelSubscription(customerID string) error {
++	return billing.CancelAtPeriodEnd(customerID)
++}

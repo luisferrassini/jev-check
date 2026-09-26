@@ -1,0 +1,21 @@
+diff --git a/scripts/sync.py b/scripts/sync.py
+new file mode 100644
+index 0000000..ad29b2e
+--- /dev/null
++++ b/scripts/sync.py
+@@ -0,0 +1,15 @@
++import json
++import sys
++
++
++def read_items(path):
++    return load_json(path)
++
++
++def main():
++    print("syncing...")
++    json.dump(read_items(sys.argv[1]), sys.stdout)
++
++
++if __name__ == "__main__":
++    main()
