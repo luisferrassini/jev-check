@@ -11,6 +11,7 @@
     "input/questions": "One check per file, built into the binary. example.json is the first check a new user runs.",
     "input/states": "Optional fixed state per check. example.json holds a short script with two deliberate flaws for the example check to find.",
     ".claude/skills/jev-check": "Tells an agent how to use the tool.",
+    ".github/workflows": "ci.yml runs gofmt, go vet, the offline tests, the build, and a few local commands on every pull request, with no secrets.",
     "CODING_STYLE.md": "The coding rules for this repository's Go code, read by people and by the opt-in coding-style check.",
     "fixtures": "Known pass and fail patches that set each check's threshold. Excluded from the gate."
   },

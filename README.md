@@ -93,6 +93,7 @@ The scan matches known patterns, such as provider token formats, private key hea
 
 The gate reads `project-context.json` in the project folder:
 
+<!-- canonical-config: TestShippedConfigs gates a repository with this block -->
 ```json
 {
   "purpose": "One or two sentences on what the project is and who runs it.",
@@ -197,6 +198,22 @@ A probability at or above the threshold passes, as in the gate. A pass fixture c
 Each fixture is one single-file patch from git. Make one by staging the file at its real path and running `git diff --cached --relative -- <file>`. `eval` sends it under the path in its headers: the new path, the old path of a deleted file, or the `rename to` path of a pure rename. Quoted paths, spaces, and non-ASCII names work. Binary, mode-only, and multi-file patches are refused, and a lone `+++ b/<path>` line is not a fixture.
 
 The coverage counts show that the suite is complete, not that the model is accurate. Only a live `eval` run shows how the current model scores the fixtures.
+
+## Contributing code
+
+You need Go (the version in `go.mod`) and `git`. No API key: every test uses a fake Jev server. Run these from the repository root, in this order:
+
+```bash
+git ls-files -z '*.go' | xargs -0 gofmt -l   # prints files that need formatting; fix them with gofmt -w <file>
+go vet ./...
+go test -count=1 ./...
+go build -o jev-check .
+./jev-check --help && ./jev-check list && ./jev-check ask example --dry-run && ./jev-check context .
+```
+
+The same commands run on every pull request and every push to `main`, as the GitHub check `CI / checks` ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). It needs no secrets, so it works on pull requests from forks. Making it a required check is a branch protection setting, not part of the repository.
+
+CI never calls the real API. `jev-check eval <check>` does: it needs `TYPESAFE_API_KEY`, and each run costs API usage. Run it by hand when you change a question or its fixtures, and put its output in the pull request.
 
 ## Contributing a better question
 
