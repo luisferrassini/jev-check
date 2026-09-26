@@ -22,19 +22,12 @@ const fakeAnswers = `{"model":"jev-test","answers":{
 // jevAnswers is what the fake server answers. A test may swap it and restore it.
 var jevAnswers string
 
-// setup points root at a temp folder that shares input/, and the API at a fake
-// server that answers each requested question, unless jevAnswers overrides it.
-// It returns the requests the server got.
+// setup moves into an empty temp project, so named checks come from the bundle,
+// and points the API at a fake server that answers each requested question,
+// unless jevAnswers overrides it. It returns the requests the server got.
 func setup(t *testing.T) *[]request {
 	t.Helper()
-	here, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	root = t.TempDir()
-	if err := os.Symlink(filepath.Join(here, "input"), filepath.Join(root, "input")); err != nil {
-		t.Fatal(err)
-	}
+	t.Chdir(t.TempDir())
 	var got []request
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer test" {
@@ -105,7 +98,7 @@ func TestAsk(t *testing.T) {
 	setup(t)
 	patch := writeFile(t, filepath.Join(t.TempDir(), "change.patch"), "print(\"hello\")\n")
 
-	if out := wantCode(t, 0, "list"); !strings.Contains(out, "public-release [needs --file]\n") {
+	if out := wantCode(t, 0, "list"); !strings.Contains(out, "public-release [bundled, needs --file]\n") {
 		t.Errorf("list: %s", out)
 	}
 
@@ -128,7 +121,8 @@ func TestAsk(t *testing.T) {
 	wantCode(t, 2, "ask", "no-such-check", "--file", patch)
 
 	out = wantCode(t, 1, "ask", "public-release", "--file", patch, "--threshold", "0.5")
-	for _, line := range []string{"FAIL  0.3  english_only\n", "ok    0.9  no_personal_info\n", "saved: output/"} {
+	project, _ := os.Getwd()
+	for _, line := range []string{"FAIL  0.3  english_only\n", "ok    0.9  no_personal_info\n", "saved: " + filepath.Join(project, "output") + "/"} {
 		if !strings.Contains(out, line) {
 			t.Errorf("missing %q in:\n%s", line, out)
 		}
@@ -347,7 +341,7 @@ func TestInvalidAnswers(t *testing.T) {
 	gitRun(t, repo, "add", "x.go")
 	writeFile(t, filepath.Join(repo, "fixtures/public-release/pass/x.patch"), "+++ b/x\n+hello\n")
 	writeFile(t, filepath.Join(repo, "fixtures/public-release/fail/english_only/x.patch"), "+++ b/x\n+hello\n")
-	_, questions, _, err := loadCheck("public-release")
+	_, questions, _, err := loadCheck(repo, "public-release")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,7 +369,7 @@ func TestInvalidAnswers(t *testing.T) {
 	}
 	jevAnswers = ""
 	wantCode(t, 0, "gate", repo)
-	caches, err := filepath.Glob(filepath.Join(root, "output/cache/*.json"))
+	caches, err := filepath.Glob(filepath.Join(repo, "output/cache/*.json"))
 	if err != nil || len(caches) != 1 {
 		t.Fatalf("cache files: %v, %v", caches, err)
 	}

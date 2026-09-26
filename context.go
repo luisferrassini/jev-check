@@ -2,9 +2,12 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -82,4 +85,64 @@ func excludes(patterns []string) []string {
 		out[i] = ":(exclude)" + p
 	}
 	return out
+}
+
+const initUsage = `Usage: jev-check init [DIR]   (default: .)
+Creates DIR/project-context.json with the starting defaults. DIR must be in a
+git working tree. An existing file is never replaced.
+`
+
+// initConfig is the starting project-context.json. Its defaults are this repository's, not a policy for every project.
+const initConfig = `{
+  "purpose": "",
+  "rules": [],
+  "folders": {},
+  "exclude": [".env", "output/", "fixtures/"],
+  "checks": [{ "check": "public-release", "threshold": 0.5, "skip": ["LICENSE"] }]
+}
+`
+
+func initCmd(args []string, stdout, _ io.Writer) (int, error) {
+	if len(args) > 0 && isHelp(args[0]) {
+		fmt.Fprint(stdout, initUsage)
+		return 0, nil
+	}
+	if len(args) > 1 {
+		return 0, errors.New("expected at most one DIR")
+	}
+	dir, err := filepath.Abs(cmp.Or(append(args, ".")...))
+	if err != nil {
+		return 0, err
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		return 0, fmt.Errorf("%s is not a folder", dir)
+	}
+	if out, err := git(dir, "rev-parse", "--is-inside-work-tree"); err != nil || strings.TrimSpace(out) != "true" {
+		return 0, fmt.Errorf("%s is not in a git working tree", dir)
+	}
+	path := filepath.Join(dir, "project-context.json")
+	// O_EXCL refuses any existing entry, a symlink included, even when two inits race.
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if errors.Is(err, fs.ErrExist) {
+		return 0, fmt.Errorf("%s already exists; inspect it instead of running init", path)
+	} else if err != nil {
+		return 0, err
+	}
+	_, err = f.WriteString(initConfig)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(path)
+		return 0, fmt.Errorf("writing %s: %w", path, err)
+	}
+	fmt.Fprintf(stdout, `created %s
+Next:
+  1. Review it: purpose, rules, exclude, and the public-release check at threshold 0.5.
+  2. Set TYPESAFE_API_KEY in the environment or in %s.
+  3. Add .env and output/ to the project's ignore rules.
+  4. Stage the work you want checked: git add -- <path>
+  5. Run: jev-check gate %s
+`, path, filepath.Join(dir, ".env"), dir)
+	return 0, nil
 }

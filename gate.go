@@ -17,7 +17,7 @@ import (
 
 const gateUsage = `Usage: jev-check gate [DIR] [--no-cache]   (default: .)
 Sends one patch per staged file to each check in DIR/project-context.json.
-Answers are cached in output/cache/ by model, questions, project, and patch,
+Answers are cached in DIR/output/cache/ by model, questions, project, and patch,
 so an unchanged file is not sent twice. --no-cache always calls the API.
 Exit 0 pass, 1 fail, 2 usage or API error.
 `
@@ -55,7 +55,7 @@ func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	questions, err := validateChecks(p.Checks)
+	questions, err := validateChecks(dir, p.Checks)
 	if err != nil {
 		return 0, fmt.Errorf("%s: %w", filepath.Join(dir, "project-context.json"), err)
 	}
@@ -104,7 +104,7 @@ func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 			// Each patch is named after its file, so the state key tells Jev which file it reads.
 			fileState := maps.Clone(state)
 			fileState["files"] = map[string]string{file + ".patch": patch}
-			res, cached, err := cachedJev(c.Check, request{Model: defaultModel, Questions: questions[i], State: fileState}, noCache, stderr)
+			res, cached, err := cachedJev(dir, c.Check, request{Model: defaultModel, Questions: questions[i], State: fileState}, noCache, stderr)
 			if err != nil {
 				fmt.Fprintf(stdout, "== %s %s\n", c.Check, file)
 				fmt.Fprintf(stderr, "jev-check gate: %v\n", err)
@@ -122,11 +122,11 @@ func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	return status, nil
 }
 
-// cachedJev returns the answers from output/cache/ when the same model, questions,
+// cachedJev returns the answers from project/output/cache/ when the same model, questions,
 // project, and patch were asked before, else it calls Jev and caches the answers.
 // The tree is left out of the key, so adding a file does not miss the cache for the others.
 // Thresholds are not in the key either: the gate judges cached answers again on every run.
-func cachedJev(name string, req request, noCache bool, stderr io.Writer) (response, bool, error) {
+func cachedJev(project, name string, req request, noCache bool, stderr io.Writer) (response, bool, error) {
 	keyState := maps.Clone(req.State)
 	delete(keyState, "tree")
 	key, err := json.Marshal(request{Model: req.Model, Questions: req.Questions, State: keyState})
@@ -134,12 +134,12 @@ func cachedJev(name string, req request, noCache bool, stderr io.Writer) (respon
 		return response{}, false, err
 	}
 	sum := sha256.Sum256(key)
-	path := filepath.Join(root, "output", "cache", hex.EncodeToString(sum[:])+".json")
+	path := filepath.Join(project, "output", "cache", hex.EncodeToString(sum[:])+".json")
 	var res response
 	if !noCache && readJSON(path, &res) == nil && validateAnswers(res.Answers, req.Questions) == nil {
 		return res, true, nil
 	}
-	res, _, err = callJev(name, req)
+	res, _, err = callJev(project, name, req)
 	if err != nil {
 		return res, false, err
 	}
@@ -158,19 +158,19 @@ func cachedJev(name string, req request, noCache bool, stderr io.Writer) (respon
 }
 
 // validateChecks checks the gate config before any API call and returns each check's questions.
-func validateChecks(checks []gateCheck) ([]map[string]json.RawMessage, error) {
+func validateChecks(project string, checks []gateCheck) ([]map[string]json.RawMessage, error) {
 	if len(checks) == 0 {
 		return nil, errors.New(`needs a "checks" list, each with "check" and "threshold"`)
 	}
 	var all []map[string]json.RawMessage
 	for _, c := range checks {
 		if !checkName.MatchString(c.Check) {
-			return nil, fmt.Errorf("check %q must be the name of a file in input/questions/", c.Check)
+			return nil, fmt.Errorf("check %q must be the name of a check (run jev-check list)", c.Check)
 		}
 		if c.Threshold == nil || *c.Threshold < 0 || *c.Threshold > 1 {
 			return nil, fmt.Errorf("check %s needs a threshold from 0 to 1", c.Check)
 		}
-		_, questions, _, err := loadCheck(c.Check)
+		_, questions, _, err := loadCheck(project, c.Check)
 		if err != nil {
 			return nil, err
 		}

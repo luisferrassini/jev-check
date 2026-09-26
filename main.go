@@ -6,17 +6,14 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 )
-
-// root holds input/, output/, and .env. It is the folder of the binary.
-var root string
 
 const usage = `Usage: jev-check <command> [args]
 
 Commands:
-  list                      list the checks in input/questions/
+  init [DIR]                create DIR/project-context.json (default: .)
+  list [DIR]                list the bundled checks and DIR/input/questions/
   ask <check> [options]     ask one check (see jev-check ask --help)
   context [DIR]             print the project state Jev sees for DIR
   secrets PATCH...          scan patches for secrets, including removed lines
@@ -31,21 +28,12 @@ Exit codes: 0 ok, 1 a check failed, 2 usage or API error.
 type command func(args []string, stdout, stderr io.Writer) (int, error)
 
 func main() {
-	exe, err := os.Executable()
-	if err == nil {
-		exe, err = filepath.EvalSymlinks(exe)
-	}
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "jev-check:", err)
-		os.Exit(2)
-	}
-	root = filepath.Dir(exe)
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
 	commands := map[string]command{
-		"list": listCmd, "ask": askCmd, "context": contextCmd,
+		"init": initCmd, "list": listCmd, "ask": askCmd, "context": contextCmd,
 		"secrets": secretsCmd, "judge": judgeCmd, "gate": gateCmd, "eval": evalCmd,
 	}
 	if len(args) == 0 {
