@@ -9,3 +9,5 @@ __pycache__/
 
 specs
 research
+.mcp.json
+skills-lock.json
