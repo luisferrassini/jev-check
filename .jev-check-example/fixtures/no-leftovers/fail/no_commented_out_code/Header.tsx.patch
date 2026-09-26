@@ -1,0 +1,11 @@
+diff --git a/src/components/Header.tsx b/src/components/Header.tsx
+index fe354d0..51d84bf 100644
+--- a/src/components/Header.tsx
++++ b/src/components/Header.tsx
+@@ -1,4 +1,6 @@
+ export function Header({ user }: Props) {
++  // const [open, setOpen] = useState(false);
++  // useEffect(() => setOpen(false), [user]);
+   return (
+     <header>
+       <Logo />

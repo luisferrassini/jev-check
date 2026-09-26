@@ -1,0 +1,11 @@
+diff --git a/queue/consumer.go b/queue/consumer.go
+index b9f3af2..cc0f388 100644
+--- a/queue/consumer.go
++++ b/queue/consumer.go
+@@ -1,5 +1,6 @@
+ package queue
+ 
+ func (c *Consumer) Ack(id string) error {
++	// TODO: fix this
+ 	return c.conn.Ack(id)
+ }

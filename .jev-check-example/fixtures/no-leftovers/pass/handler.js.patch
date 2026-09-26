@@ -1,0 +1,12 @@
+diff --git a/server/routes/profile.js b/server/routes/profile.js
+index bb08330..4b60379 100644
+--- a/server/routes/profile.js
++++ b/server/routes/profile.js
+@@ -1,7 +1,4 @@
+ async function getProfile(req, res) {
+-  console.log("req.params", req.params);
+-  // const cached = await cache.get(req.params.id);
+-  // if (cached) return res.json(cached);
+   const profile = await db.profiles.find(req.params.id);
+   res.json(profile);
+ }

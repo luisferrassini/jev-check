@@ -1,0 +1,12 @@
+diff --git a/src/net/backoff.ts b/src/net/backoff.ts
+index 006d909..931aa0d 100644
+--- a/src/net/backoff.ts
++++ b/src/net/backoff.ts
+@@ -1,3 +1,7 @@
++// delayFor returns the wait before retry number `attempt`, in milliseconds.
++// It doubles from 100 ms and stops at 30 s, so delayFor(3) is 800 and
++// delayFor(20) is 30000. Jitter is added by the caller, not here.
+ export function delayFor(attempt: number): number {
++  // attempt starts at 0, so the first retry waits 100 ms.
+   return Math.min(30_000, 2 ** attempt * 100);
+ }

@@ -1,0 +1,11 @@
+diff --git a/test/checkout.test.js b/test/checkout.test.js
+index 312abcd..c9b7349 100644
+--- a/test/checkout.test.js
++++ b/test/checkout.test.js
+@@ -1,5 +1,5 @@
+ describe("checkout", () => {
+-  it("charges the card", async () => {
++  it.only("charges the card", async () => {
+     await expect(checkout(cart)).resolves.toBeDefined();
+   });
+ 

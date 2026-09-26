@@ -1,0 +1,20 @@
+diff --git a/tests/test_paths.py b/tests/test_paths.py
+index ffdf0dc..3e0b046 100644
+--- a/tests/test_paths.py
++++ b/tests/test_paths.py
+@@ -1,7 +1,15 @@
+ import os
++import sys
++
++import pytest
+ 
+ from app.paths import normalize
+ 
+ 
+ def test_normalize_relative():
+     assert normalize("a/../b") == "b"
++
++
++@pytest.mark.skipif(sys.platform == "win32", reason="POSIX paths only; Windows is covered by test_normalize_drive")
++def test_normalize_absolute():
++    assert normalize("/a/./b") == "/a/b"

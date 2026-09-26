@@ -1,0 +1,10 @@
+diff --git a/reports/monthly.py b/reports/monthly.py
+index 1585e84..fbdd542 100644
+--- a/reports/monthly.py
++++ b/reports/monthly.py
+@@ -1,3 +1,5 @@
+ def build(rows):
+     totals = summarize(rows)
++    # totals = summarize_legacy(rows)
++    # totals["tax"] = compute_tax(totals)
+     return render(totals)

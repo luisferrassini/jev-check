@@ -1,0 +1,11 @@
+diff --git a/scripts/import_users.py b/scripts/import_users.py
+index 6549f97..b83f108 100644
+--- a/scripts/import_users.py
++++ b/scripts/import_users.py
+@@ -6,3 +6,6 @@ def main(path):
+     with open(path) as f:
+         rows = list(csv.DictReader(f))
+     created = sum(1 for row in rows if create_user(row))
++    print(f"Imported {created} of {len(rows)} users from {path}.")
++    if created < len(rows):
++        print(f"{len(rows) - created} rows were skipped. See import.log.", file=sys.stderr)

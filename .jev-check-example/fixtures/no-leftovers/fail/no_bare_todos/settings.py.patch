@@ -1,0 +1,8 @@
+diff --git a/app/settings.py b/app/settings.py
+index cba48bb..fc8240b 100644
+--- a/app/settings.py
++++ b/app/settings.py
+@@ -1,2 +1,2 @@
+ TIMEOUT = 30
+-RETRIES = 3
++RETRIES = 3  # XXX hack

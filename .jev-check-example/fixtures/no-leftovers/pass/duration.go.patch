@@ -1,0 +1,19 @@
+diff --git a/timeparse/duration.go b/timeparse/duration.go
+index 7652ae8..0914b63 100644
+--- a/timeparse/duration.go
++++ b/timeparse/duration.go
+@@ -1,5 +1,14 @@
+ package timeparse
+ 
++// ParseDays parses a count of days written with a "d" suffix.
++//
++// Example:
++//
++//	n, err := timeparse.ParseDays("14d")
++//	if err != nil {
++//		return err
++//	}
++//	fmt.Println(n) // 14
+ func ParseDays(s string) (int, error) {
+ 	return parseUnit(s, "d")
+ }

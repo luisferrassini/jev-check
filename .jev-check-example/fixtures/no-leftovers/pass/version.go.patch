@@ -1,0 +1,18 @@
+diff --git a/cmd/tool/version.go b/cmd/tool/version.go
+index 81755ea..575925e 100644
+--- a/cmd/tool/version.go
++++ b/cmd/tool/version.go
+@@ -1,3 +1,13 @@
+ package main
+ 
++import (
++	"fmt"
++	"runtime"
++)
++
+ var version = "dev"
++
++// runVersion implements `tool version`.
++func runVersion() {
++	fmt.Printf("tool %s (%s/%s)\n", version, runtime.GOOS, runtime.GOARCH)
++}

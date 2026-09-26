@@ -1,0 +1,10 @@
+diff --git a/src/store/cartReducer.js b/src/store/cartReducer.js
+index 647f2c4..7e41b68 100644
+--- a/src/store/cartReducer.js
++++ b/src/store/cartReducer.js
+@@ -1,4 +1,5 @@
+ export function cartReducer(state, action) {
++  console.log("here", action, state);
+   switch (action.type) {
+     case "add":
+       return { ...state, items: [...state.items, action.item] };

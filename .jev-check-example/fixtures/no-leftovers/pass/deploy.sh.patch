@@ -1,0 +1,13 @@
+diff --git a/scripts/deploy.sh b/scripts/deploy.sh
+index f609c69..4abef6b 100644
+--- a/scripts/deploy.sh
++++ b/scripts/deploy.sh
+@@ -2,5 +2,8 @@
+ set -euo pipefail
+ 
+ ENV="${1:?usage: deploy.sh <env>}"
++echo "Building image app:$ENV..."
+ docker build -t app:"$ENV" .
++echo "Pushing image app:$ENV..."
+ docker push app:"$ENV"
++echo "Deployed to $ENV."

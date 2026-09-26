@@ -44,7 +44,7 @@ jev-check list
 jev-check ask example --dry-run
 ```
 
-`list` shows the bundled checks: `coding-style`, `example`, `maintainability`, and `public-release`. `ask example --dry-run` prints the request it would send, as JSON with `model`, `questions`, and `state`, and exits 0. Nothing is sent, so this is a preview, not a judgment of the sample script.
+`list` shows the bundled checks: `coding-style`, `example`, `maintainability`, `no-leftovers`, and `public-release`. `ask example --dry-run` prints the request it would send, as JSON with `model`, `questions`, and `state`, and exits 0. Nothing is sent, so this is a preview, not a judgment of the sample script.
 
 ### 4. Make a practice repository
 
@@ -378,6 +378,15 @@ In this run with `jev-latest` on 2026-09-26, every clean fixture scored 0.83 or 
 - `no_mixed_output_channels`: no new progress or debug prose on the same stream as machine-readable data, where the patch shows that the stream holds only data. Diagnostics on stderr, output meant for people, separate modes, help text, and status inside the data schema are accepted.
 
 It judges only what added or changed lines show. Removed code, untouched context, non-Go files, documentation, and visible generated files pass. A pass does not mean the project is maintainable. To enable it, add `{ "check": "maintainability", "threshold": 0.49 }` to `checks`. The threshold and the scores behind it are in [`.jev-check-example/fixtures/maintainability/CALIBRATION.md`](.jev-check-example/fixtures/maintainability/CALIBRATION.md). To evaluate it, use the disposable project from [Evaluating an opt-in check](#evaluating-an-opt-in-check) with `.jev-check-example/fixtures/maintainability`, no `CODING_STYLE.md`, and `{"check":"maintainability","threshold":0.49}`.
+
+`no-leftovers` is opt-in and covers any language. It makes four narrow judgments about lines added in one patch:
+
+- `no_debug_prints`: no new print that dumps values or trace markers for the developer. Logger calls and output that is the program's job, such as CLI or script output, are accepted.
+- `no_commented_out_code`: no new comment that holds statements that would run without the comment markers. Prose comments, doc-comment examples, and license headers are accepted.
+- `no_bare_todos`: no new TODO, FIXME, XXX, or HACK without an issue, an owner, or a specific next step.
+- `no_temporary_skips`: no new unconditional test skip without a tracking issue, and no focus marker such as `it.only` or `fit`. A skip behind a condition, with a reason, is accepted.
+
+Removed leftovers, untouched context, and documentation files pass. To enable it, add `{ "check": "no-leftovers", "threshold": 0.41 }` to `checks`. The scores behind the threshold are in [`.jev-check-example/fixtures/no-leftovers/CALIBRATION.md`](.jev-check-example/fixtures/no-leftovers/CALIBRATION.md). To evaluate it, use the disposable project from [Evaluating an opt-in check](#evaluating-an-opt-in-check) with `.jev-check-example/fixtures/no-leftovers`, no `CODING_STYLE.md`, and `{"check":"no-leftovers","threshold":0.41}`.
 
 `example` is a first check to try. It runs on a bundled script, so it needs no `--file`.
 

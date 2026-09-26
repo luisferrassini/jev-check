@@ -1,0 +1,14 @@
+diff --git a/internal/payments/charge.go b/internal/payments/charge.go
+index 8446348..fa4b230 100644
+--- a/internal/payments/charge.go
++++ b/internal/payments/charge.go
+@@ -6,7 +6,9 @@ import (
+ )
+ 
+ func (s *Service) Charge(ctx context.Context, c Charge) error {
++	s.log.Debug("submitting charge", slog.String("charge_id", c.ID), slog.Int64("amount", c.Amount))
+ 	if err := s.gateway.Submit(ctx, c); err != nil {
++		s.log.Error("charge failed", slog.String("charge_id", c.ID), slog.Any("err", err))
+ 		return err
+ 	}
+ 	return nil

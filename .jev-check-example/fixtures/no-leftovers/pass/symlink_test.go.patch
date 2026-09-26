@@ -1,0 +1,26 @@
+diff --git a/fsutil/symlink_test.go b/fsutil/symlink_test.go
+index b891f6f..0debd7a 100644
+--- a/fsutil/symlink_test.go
++++ b/fsutil/symlink_test.go
+@@ -3,13 +3,21 @@ package fsutil
+ import (
+ 	"os"
+ 	"path/filepath"
++	"runtime"
+ 	"testing"
+ )
+ 
+ func TestResolve(t *testing.T) {
++	if runtime.GOOS == "windows" {
++		t.Skip("creating symlinks on Windows needs administrator rights")
++	}
+ 	dir := t.TempDir()
+ 	target := filepath.Join(dir, "target")
+ 	if err := os.WriteFile(target, nil, 0o644); err != nil {
+ 		t.Fatal(err)
+ 	}
++	link := filepath.Join(dir, "link")
++	if err := os.Symlink(target, link); err != nil {
++		t.Fatal(err)
++	}
+ }

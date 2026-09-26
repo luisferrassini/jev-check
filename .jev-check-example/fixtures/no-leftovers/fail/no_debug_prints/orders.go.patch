@@ -1,0 +1,14 @@
+diff --git a/internal/orders/service.go b/internal/orders/service.go
+index 549e0b7..44f16c9 100644
+--- a/internal/orders/service.go
++++ b/internal/orders/service.go
+@@ -1,6 +1,9 @@
+ package orders
+ 
++import "fmt"
++
+ func (s *Service) Place(o Order) error {
+ 	total := s.pricing.Total(o)
++	fmt.Printf("DEBUG order=%+v total=%v\n", o, total)
+ 	return s.repo.Save(o, total)
+ }

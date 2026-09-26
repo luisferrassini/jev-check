@@ -1,0 +1,13 @@
+diff --git a/auth/session.go b/auth/session.go
+index 780c4b7..eb2f7ec 100644
+--- a/auth/session.go
++++ b/auth/session.go
+@@ -1,5 +1,8 @@
+ package auth
+ 
+ func (m *Manager) End(id string) error {
++	// if err := m.cache.Flush(id); err != nil {
++	// 	return err
++	// }
+ 	return m.store.Delete(id)
+ }

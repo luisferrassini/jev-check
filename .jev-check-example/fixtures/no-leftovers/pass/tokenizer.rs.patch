@@ -1,0 +1,10 @@
+diff --git a/src/tokenizer.rs b/src/tokenizer.rs
+index bc28342..fcdf8da 100644
+--- a/src/tokenizer.rs
++++ b/src/tokenizer.rs
+@@ -1,3 +1,5 @@
+ pub fn split_words(input: &str) -> Vec<&str> {
++    // TODO(maria): split on Unicode word boundaries instead of whitespace,
++    // so "don't" and CJK text tokenize correctly. Needs the segmentation crate.
+     input.split_whitespace().collect()
+ }

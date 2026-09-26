@@ -1,0 +1,9 @@
+diff --git a/jobs/worker.py b/jobs/worker.py
+index 1748da3..28826a0 100644
+--- a/jobs/worker.py
++++ b/jobs/worker.py
+@@ -1,3 +1,4 @@
+ def process(batch):
++    # TODO(#482): process items concurrently once the handler is thread-safe.
+     for item in batch:
+         handle(item)

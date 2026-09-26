@@ -1,0 +1,11 @@
+diff --git a/src/api/upload.ts b/src/api/upload.ts
+index 029e08a..fcc1c1e 100644
+--- a/src/api/upload.ts
++++ b/src/api/upload.ts
+@@ -1,4 +1,6 @@
+ export async function upload(file: File): Promise<string> {
++  // FIXME
+   const res = await fetch("/api/upload", { method: "POST", body: file });
++  // TODO later
+   return (await res.json()).url;
+ }

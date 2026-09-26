@@ -1,0 +1,17 @@
+diff --git a/CONTRIBUTING.md b/CONTRIBUTING.md
+index e597c68..86f7a74 100644
+--- a/CONTRIBUTING.md
++++ b/CONTRIBUTING.md
+@@ -1,3 +1,12 @@
+ # Contributing
+ 
+ Run the tests before you open a pull request.
++
++## Before you push
++
++Remove anything you added only for yourself:
++
++- debug output such as `console.log("here", state)` or `fmt.Println(x)`;
++- blocks of code you commented out, such as `// return oldTotal(cart)`;
++- a bare `// TODO` with no issue number;
++- focused or skipped tests, such as `it.only(...)` or `t.Skip()`.

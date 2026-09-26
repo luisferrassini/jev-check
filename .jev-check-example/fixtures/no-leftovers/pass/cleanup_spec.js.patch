@@ -1,0 +1,16 @@
+diff --git a/test/cart.spec.js b/test/cart.spec.js
+index 41fcf56..005ea5a 100644
+--- a/test/cart.spec.js
++++ b/test/cart.spec.js
+@@ -1,9 +1,9 @@
+ describe("cart", () => {
+-  it.only("adds an item", () => {
++  it("adds an item", () => {
+     expect(add([], item).length).toBe(1);
+   });
+ 
+-  xit("removes an item", () => {
++  it("removes an item", () => {
+     expect(remove([item], item.id).length).toBe(0);
+   });
+ });

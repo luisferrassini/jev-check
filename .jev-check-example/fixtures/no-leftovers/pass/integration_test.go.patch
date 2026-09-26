@@ -1,0 +1,29 @@
+diff --git a/store/integration_test.go b/store/integration_test.go
+index e1cf1ba..811133f 100644
+--- a/store/integration_test.go
++++ b/store/integration_test.go
+@@ -1,8 +1,23 @@
+ package store
+ 
+-import "testing"
++import (
++	"os"
++	"testing"
++)
+ 
+ func TestRoundTrip(t *testing.T) {
+ 	s := openTestStore(t)
+ 	defer s.Close()
+ }
++
++func TestPostgresRoundTrip(t *testing.T) {
++	if testing.Short() {
++		t.Skip("integration test; run without -short")
++	}
++	dsn := os.Getenv("TEST_POSTGRES_DSN")
++	if dsn == "" {
++		t.Skip("TEST_POSTGRES_DSN is not set")
++	}
++	s := openPostgres(t, dsn)
++	defer s.Close()
++}
