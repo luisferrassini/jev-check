@@ -49,13 +49,24 @@ func setup(t *testing.T) *[]request {
 			return
 		}
 		answers := map[string]any{}
-		for id := range req.Questions {
+		for id, raw := range req.Questions {
+			if strings.Contains(string(raw), `"choice"`) {
+				answers[id] = map[string]any{"type": "choice", "choice": "x", "probabilities": map[string]float64{"x": 1}}
+				continue
+			}
 			value := 0.9
 			if id == "english_only" {
 				value = 0.3
 			}
-			if files, _ := req.State["files"].(map[string]any); id == "english_only" && files["b.go.patch"] != nil {
+			files, _ := req.State["files"].(map[string]any)
+			if id == "english_only" && files["b.go.patch"] != nil {
 				value = 0.1
+			}
+			// A fixture whose target path starts with bad-<id> fails that question.
+			for file := range files {
+				if strings.HasPrefix(file, "bad-"+id) {
+					value = 0.1
+				}
 			}
 			answers[id] = map[string]any{"type": "noul", "noul": value}
 		}
@@ -314,10 +325,12 @@ func TestEval(t *testing.T) {
 	fixtures := filepath.Join(repo, "fixtures", "public-release")
 	wantCode(t, 2, "eval", "public-release", repo) // no fixtures yet
 
-	writeFile(t, filepath.Join(fixtures, "pass", "a.go.patch"), "+++ b/a.go\n+package a\n")
-	// The fake answers english_only=0.1 for b.go.patch, so this fixture fails it.
-	writeFile(t, filepath.Join(fixtures, "fail", "english_only", "b.go.patch"), "+++ b/b.go\n+package b\n")
-	if out := wantCode(t, 0, "eval", "public-release", repo); !strings.HasSuffix(out, "eval: 0 misses in 2 fixtures\n") {
+	writeFile(t, filepath.Join(fixtures, "pass", "a.go.patch"), gitPatch(t, "a.go", "package a\n"))
+	// The fake answers 0.1 for a question when the path starts with bad-<question>.
+	for _, q := range []string{"english_only", "no_personal_info", "no_outside_paths", "no_private_links", "no_third_party_content", "belongs_in_project"} {
+		writeFile(t, filepath.Join(fixtures, "fail", q, "b.go.patch"), gitPatch(t, "bad-"+q+".go", "package b\n"))
+	}
+	if out := wantCode(t, 0, "eval", "public-release", repo); !strings.HasSuffix(out, "eval: 0 misses in 7 fixtures\n") {
 		t.Errorf("eval output:\n%s", out)
 	}
 
@@ -328,7 +341,7 @@ func TestEval(t *testing.T) {
 	}
 
 	wantCode(t, 2, "eval", "no-such-check", repo)
-	writeFile(t, filepath.Join(fixtures, "fail", "typo", "c.patch"), "+++ b/c\n")
+	writeFile(t, filepath.Join(fixtures, "fail", "typo", "c.patch"), gitPatch(t, "c", "x\n"))
 	wantCode(t, 2, "eval", "public-release", repo)
 	os.RemoveAll(filepath.Join(fixtures, "fail", "typo"))
 	writeFile(t, filepath.Join(fixtures, "pass", "no-header.patch"), "+x\n")
@@ -343,8 +356,10 @@ func TestInvalidAnswers(t *testing.T) {
 	writeFile(t, filepath.Join(repo, "project-context.json"), `{"checks":[{"check":"public-release","threshold":0}]}`)
 	file := writeFile(t, filepath.Join(repo, "x.go"), "package x\n")
 	gitRun(t, repo, "add", "x.go")
-	writeFile(t, filepath.Join(repo, "fixtures/public-release/pass/x.patch"), "+++ b/x\n+hello\n")
-	writeFile(t, filepath.Join(repo, "fixtures/public-release/fail/english_only/x.patch"), "+++ b/x\n+hello\n")
+	writeFile(t, filepath.Join(repo, "fixtures/public-release/pass/x.patch"), gitPatch(t, "x", "hello\n"))
+	for _, q := range []string{"english_only", "no_personal_info", "no_outside_paths", "no_private_links", "no_third_party_content", "belongs_in_project"} {
+		writeFile(t, filepath.Join(repo, "fixtures/public-release/fail", q, "x.patch"), gitPatch(t, "x", "hello\n"))
+	}
 	_, questions, _, err := loadCheck(repo, "public-release")
 	if err != nil {
 		t.Fatal(err)
