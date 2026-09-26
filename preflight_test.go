@@ -118,7 +118,7 @@ func TestGatePreflight(t *testing.T) {
 	gitRun(t, repo, "add", "a.txt")
 	wantCode(t, 0, "gate", repo) // fills the cache
 
-	// A new tree entry does not change the cache key, so only the shared scan stops it.
+	// A new tree entry is shared state, so the first scan stops it before any cache lookup.
 	named := writeFile(t, filepath.Join(repo, ghToken+".txt"), "x\n")
 	wantBlocked(t, requests, ghToken, "gate", repo)
 	os.Remove(named)

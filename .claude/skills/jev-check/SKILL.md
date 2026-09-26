@@ -39,7 +39,7 @@ Run `jev-check gate <project>` and keep stdout, stderr, and the exit code. Say i
 
 ### Retry budget
 
-For one task scope the gate runs at most **three** times: the first run and two reruns. Each rerun needs a concrete change to code, staging, or setup since the last run. An unchanged file gets the same cached answer, and `--no-cache` only buys another sample of the same judgment, so rerun with a change or not at all. Retry an exit 2 only after you have fixed its cause. When the budget runs out, report the remaining findings and what you finished. More runs need a new instruction or a changed task.
+For one task scope the gate runs at most **three** times: the first run and two reruns. Each rerun needs a concrete change to code, staging, or setup since the last run. An unchanged request gets the same cached answer for 24 hours, and `--no-cache` only buys another sample of the same judgment, so rerun with a change or not at all. Retry an exit 2 only after you have fixed its cause. When the budget runs out, report the remaining findings and what you finished. More runs need a new instruction or a changed task.
 
 ### A FAIL that looks wrong
 

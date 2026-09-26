@@ -138,7 +138,7 @@ ok    0.98  no_third_party_content
 gate: PASS
 ```
 
-The gate reads the staged version of each file. After you edit a file, run `git add -- <file>` again, or the gate judges the old version. An unchanged staged file shows `(cached)` and costs no new request.
+The gate reads the staged version of each file. After you edit a file, run `git add -- <file>` again, or the gate judges the old version. When nothing in the request changed in the last 24 hours, the file shows `(cached)` and costs no new request. See [Cache](#cache).
 
 ### 8. Read the result
 
@@ -208,7 +208,7 @@ The bundled checks are built into the binary, so it needs no files beside it. Ev
 | Custom checks and default states | `<project>/input/questions/` and `<project>/input/states/`; a project check shadows a bundled check of the same name |
 | API key, endpoint, and model | `<project>/.jev-check/.env`; see [Configuration](#configuration) |
 | Saved requests and responses | `<project>/output/` |
-| Gate cache | `<project>/output/cache/` |
+| Gate and eval cache | `<project>/output/cache/v2/` |
 | Fixtures | `<project>/fixtures/<check>/` |
 
 `gate`, `eval`, `context`, `doctor`, `init`, and `list` take the project folder as `DIR` (default: the current folder). `ask` uses the current folder. There is no search in parent folders.
@@ -222,6 +222,7 @@ Older versions read `input/`, `.env`, and `output/` from the binary's folder. To
 1. Copy your custom `input/questions/<name>.json` files, and any matching `input/states/<name>.json`, into the project.
 2. Put `TYPESAFE_API_KEY=<key>` in the project's `.jev-check/.env`, and add `.jev-check/.env` to `.gitignore`. The environment variable and the project's `.env` are no longer read. From a project that had the key in `.env`: `mkdir -p .jev-check && grep '^TYPESAFE_API_KEY=' .env > .jev-check/.env`. Run `jev-check doctor` to check.
 3. Expect new answers in the project's `output/`. Old saved answers still work with `jev-check judge <path>`. The old cache is not read.
+4. The cache moved to `output/cache/v2/` with a new key, so the first gate after upgrading calls the API for every file. Older entries directly in `output/cache/` are never read. Delete them to reclaim space.
 
 ## Use it from an agent
 
@@ -313,7 +314,16 @@ The gate reads `project-context.json` in the project folder:
 - `exclude` and `skip` are git pathspecs. `exclude` is never listed or sent. `skip` is ignored by that one check.
 - `per_question` sets a threshold for one question, overriding the check's default.
 
-The gate caches answers in the project's `output/cache/`. The cache key is the model, the questions, the project fields, and the patch. The tree and the thresholds are not in the key, so adding a file or changing a threshold does not resend the other files.
+### Cache
+
+`gate` and `eval` cache answers in `<project>/output/cache/v2/`. The key is the endpoint and the whole request: the model you asked for, the questions, and the full state (project fields, tree, patch, and `coding_style`). Any change to them misses the cache and costs a new request. Adding, removing, or renaming any file changes the tree, so the next gate sends every staged file again. Thresholds are not in the key: after a threshold change, the gate judges the cached answers again with no new request.
+
+- An entry is reused for less than 24 hours after its answer arrived. Reading it does not renew it, and neither does touching the file. A model name such as `jev-latest` can point at a new model within those 24 hours; the limit bounds that, it does not prevent it. The same request can also get different answers on different runs.
+- `--no-cache` always calls the API and replaces the entry when the call succeeds.
+- A damaged, expired, or older-format entry is a miss. When the call then fails, the command fails with exit 2; it never falls back to an old answer.
+- If the cache cannot be written, the command warns on stderr and keeps the live answer.
+- Keep `output/` in `.gitignore`. Answers saved there are otherwise part of the tree, and every run misses the cache.
+- Deleting `output/cache/` only costs new requests. It never removes configuration.
 
 ## Checks
 

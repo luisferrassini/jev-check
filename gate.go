@@ -13,12 +13,15 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 )
 
 const gateUsage = `Usage: jev-check gate [DIR] [--no-cache] [--model ID]   (default: .)
 Sends one patch per staged file to each check in DIR/project-context.json.
-Answers are cached in DIR/output/cache/ by model, questions, project, and patch,
-so an unchanged file is not sent twice. --no-cache always calls the API.
+Answers are cached for 24 hours in DIR/output/cache/v2/, keyed by the endpoint
+and the whole request: model, questions, project fields, tree, patch, and
+coding_style. Any change misses; a threshold change does not. --no-cache
+always calls the API and saves the new answers.
 The key, endpoint, and model come from DIR/.jev-check/.env; --model ID
 overrides its model (see jev-check doctor).
 A check's optional "coding_style" names a document in DIR; its working-tree
@@ -178,43 +181,93 @@ func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	return status, nil
 }
 
-// cachedJev returns the answers from project/output/cache/ when the same model, questions,
-// project, and patch were asked before, else it calls Jev and caches the answers.
-// The tree is left out of the key, so adding a file does not miss the cache for the others.
-// Thresholds are not in the key either: the gate judges cached answers again on every run.
+// cacheVersion names the cache key and entry format under output/cache/v2/.
+// Entries in other folders, such as the unversioned ones in output/cache/, are never read.
+const cacheVersion = 2
+
+// cacheLifetime bounds reuse, because a model name such as jev-latest can change behind it.
+// It is a policy, not proof that the model stayed the same.
+const cacheLifetime = 24 * time.Hour
+
+// cacheEntry is one file in output/cache/v2/.
+type cacheEntry struct {
+	Version   int      `json:"version"`
+	CreatedAt string   `json:"created_at"`
+	Response  response `json:"response"`
+}
+
+// fresh reports whether an entry created at created can be reused at now.
+// A future time counts as unknown age, so it is not reused.
+func fresh(created, now time.Time) bool {
+	age := now.Sub(created)
+	return age >= 0 && age < cacheLifetime
+}
+
+// cachedJev returns the answers from project/output/cache/v2/ when the same request went to the
+// same endpoint less than cacheLifetime ago, else it calls Jev and caches the answers.
+// The key is the whole request, so any change to the model, questions, or state misses.
+// Thresholds are not in the request: the gate judges cached answers again on every run.
+// noCache skips the lookup but still saves the new answers.
 func cachedJev(project, name string, cfg settings, req request, noCache bool, stderr io.Writer) (response, bool, error) {
 	// Scan before the cache, so an old answer never hides a secret.
 	if err := scanRequest(req); err != nil {
 		return response{}, false, err
 	}
-	keyState := maps.Clone(req.State)
-	delete(keyState, "tree")
-	key, err := json.Marshal(request{Model: req.Model, Questions: req.Questions, State: keyState})
+	// json.Marshal sorts map keys, so the same request always gives the same key.
+	key, err := json.Marshal(struct {
+		Version  int     `json:"version"`
+		Endpoint string  `json:"endpoint"`
+		Request  request `json:"request"`
+	}{cacheVersion, cfg.endpoint, req})
 	if err != nil {
 		return response{}, false, err
 	}
 	sum := sha256.Sum256(key)
-	path := filepath.Join(project, "output", "cache", hex.EncodeToString(sum[:])+".json")
-	var res response
-	if !noCache && readJSON(path, &res) == nil && validateAnswers(res.Answers, req.Questions) == nil {
-		return res, true, nil
+	path := filepath.Join(project, "output", "cache", "v2", hex.EncodeToString(sum[:])+".json")
+	var entry cacheEntry
+	if !noCache && readJSON(path, &entry) == nil && entry.Version == cacheVersion {
+		created, err := time.Parse(time.RFC3339, entry.CreatedAt)
+		if err == nil && fresh(created, time.Now()) && validateAnswers(entry.Response.Answers, req.Questions) == nil {
+			return entry.Response, true, nil
+		}
 	}
-	res, _, err = callJev(project, name, cfg, req)
+	res, _, err := callJev(project, name, cfg, req)
 	if err != nil {
 		return res, false, err
 	}
 	// A failed cache write only costs an API call next time, so it warns and keeps the answer.
-	data, err := json.Marshal(res)
-	if err == nil {
-		err = os.MkdirAll(filepath.Dir(path), 0o755)
-	}
-	if err == nil {
-		err = os.WriteFile(path, data, 0o644)
-	}
-	if err != nil {
+	entry = cacheEntry{cacheVersion, time.Now().UTC().Format(time.RFC3339), res}
+	if err := writeCache(path, entry); err != nil {
 		fmt.Fprintf(stderr, "jev-check gate: cache not saved: %v\n", err)
 	}
 	return res, false, nil
+}
+
+// writeCache writes entry to a temporary file and renames it to path,
+// so a reader never sees half an entry.
+func writeCache(path string, entry cacheEntry) error {
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(data)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(f.Name(), path)
+	}
+	if err != nil {
+		os.Remove(f.Name())
+	}
+	return err
 }
 
 // validateChecks checks the gate config before any API call and returns each check's questions.

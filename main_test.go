@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 const fakeAnswers = `{"model":"jev-test","answers":{
@@ -36,6 +37,15 @@ func setup(t *testing.T) *[]request {
 	t.Helper()
 	t.Chdir(t.TempDir())
 	var got []request
+	fakeEndpoint = fakeServer(t, &got)
+	fakeSettings = "TYPESAFE_API_KEY=test\nJEV_CHECK_ENDPOINT=" + fakeEndpoint + "\n"
+	writeSettings(t, ".", fakeSettings)
+	return &got
+}
+
+// fakeServer starts a fake Jev server that appends each request it answers to got, and returns its URL.
+func fakeServer(t *testing.T, got *[]request) string {
+	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer test" {
 			http.Error(w, "bad key", http.StatusUnauthorized)
@@ -46,7 +56,7 @@ func setup(t *testing.T) *[]request {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		got = append(got, req)
+		*got = append(*got, req)
 		if req.Questions["api_down"] != nil {
 			http.Error(w, "down", http.StatusInternalServerError)
 			return
@@ -80,10 +90,7 @@ func setup(t *testing.T) *[]request {
 		json.NewEncoder(w).Encode(map[string]any{"model": "jev-test", "answers": answers})
 	}))
 	t.Cleanup(server.Close)
-	fakeEndpoint = server.URL
-	fakeSettings = "TYPESAFE_API_KEY=test\nJEV_CHECK_ENDPOINT=" + server.URL + "\n"
-	writeSettings(t, ".", fakeSettings)
-	return &got
+	return server.URL
 }
 
 // writeSettings writes dir/.jev-check/.env.
@@ -92,12 +99,12 @@ func writeSettings(t *testing.T, dir, content string) {
 	writeFile(t, filepath.Join(dir, ".jev-check", ".env"), content)
 }
 
-// gitInit makes dir a git repository with the fake server's settings, kept out of git
-// the way a user's ignore rules keep them out.
+// gitInit makes dir a git repository with the fake server's settings. The settings
+// file and output/ stay out of git, as the tutorial's .gitignore keeps them out.
 func gitInit(t *testing.T, dir string) {
 	t.Helper()
 	gitRun(t, dir, "init", "-q")
-	writeFile(t, filepath.Join(dir, ".git", "info", "exclude"), ".jev-check/.env\n")
+	writeFile(t, filepath.Join(dir, ".git", "info", "exclude"), ".jev-check/.env\noutput/\n")
 	writeSettings(t, dir, fakeSettings)
 }
 
@@ -296,8 +303,7 @@ func TestGate(t *testing.T) {
 		t.Errorf("gate sent project %v", sent["project"])
 	}
 
-	// An unchanged patch comes from the cache, even when the tree changes. --no-cache sends it again.
-	writeFile(t, filepath.Join(repo, "new.txt"), "x\n")
+	// An unchanged request comes from the cache. --no-cache sends it again.
 	if out := wantCode(t, 1, "gate", repo); !strings.Contains(out, "== public-release app.py (cached)\n") || len(*requests) != 1 {
 		t.Errorf("cache missed, %d requests:\n%s", len(*requests), out)
 	}
@@ -411,12 +417,12 @@ func TestInvalidAnswers(t *testing.T) {
 	}
 	jevAnswers = ""
 	wantCode(t, 0, "gate", repo)
-	caches, err := filepath.Glob(filepath.Join(repo, "output/cache/*.json"))
+	caches, err := filepath.Glob(filepath.Join(repo, "output/cache/v2/*.json"))
 	if err != nil || len(caches) != 1 {
 		t.Fatalf("cache files: %v, %v", caches, err)
 	}
 	for _, raw := range []string{`{"answers":{}}`, `{"answers":{"english_only":{"type":"noul","noul":1}}}`} {
-		writeFile(t, caches[0], raw)
+		writeFile(t, caches[0], `{"version":2,"created_at":"`+time.Now().UTC().Format(time.RFC3339)+`","response":`+raw+`}`)
 		before := len(*requests)
 		jevAnswers = raw
 		wantCode(t, 2, "gate", repo)
