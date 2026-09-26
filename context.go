@@ -178,8 +178,16 @@ Next:
   3. Check the setup: jev-check doctor %s
   4. Stage the work you want checked: git add -- <path>
   5. Run: jev-check gate %s
-`, path, filepath.Join(dir, settingsFile), ignore, dir, dir)
+`, path, filepath.Join(dir, settingsFile), ignore, shellQuote(dir), shellQuote(dir))
 	return 0, nil
+}
+
+// shellQuote returns s ready to paste into a POSIX shell, quoted only when needed.
+func shellQuote(s string) string {
+	if s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._-+:@%,=") == "" {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // createFile writes a new file. O_EXCL refuses any existing entry, a symlink

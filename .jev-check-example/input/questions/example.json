@@ -1,6 +1,6 @@
 {
   "title": "Example with a default state",
-  "description": "A first check to try: runs on the small script in input/states/example.json, so it needs no --file. Every yes/no answer is the probability that the script is fine.",
+  "description": "A first check to try: runs on a small bundled script, so it needs no --file. Every yes/no answer is the probability that the script is fine.",
   "questions": {
     "handles_missing_file": {
       "type": "noul",

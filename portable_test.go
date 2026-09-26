@@ -134,8 +134,8 @@ func TestInit(t *testing.T) {
 	os.Mkdir(sub, 0o755)
 	out := wantCode(t, 0, "init", sub)
 	config := configPath(sub)
-	if !strings.Contains(out, config) {
-		t.Errorf("init output:\n%s", out)
+	if !strings.Contains(out, config) || !strings.Contains(out, "jev-check gate '"+sub+"'") {
+		t.Errorf("init output, want the config path and a quoted gate command:\n%s", out)
 	}
 	var p project
 	if err := readJSON(config, &p); err != nil || len(p.Checks) != 1 || p.Checks[0].Check != "public-release" ||
