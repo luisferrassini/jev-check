@@ -160,3 +160,17 @@ func scanValue(label string, v any, reports *[]string) {
 		}
 	}
 }
+
+// styleSecrets scans coding_style documents, labeled by their project path.
+func styleSecrets(docs map[string]string) error {
+	var reports []string
+	for _, path := range slices.Sorted(maps.Keys(docs)) {
+		label := safeLabel(path, "coding_style document")
+		reports = append(reports, secretReports(label+" path", path, false)...)
+		reports = append(reports, secretReports(label, docs[path], true)...)
+	}
+	if reports == nil {
+		return nil
+	}
+	return secretsFound(reports)
+}

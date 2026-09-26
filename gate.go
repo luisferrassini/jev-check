@@ -19,7 +19,9 @@ const gateUsage = `Usage: jev-check gate [DIR] [--no-cache]   (default: .)
 Sends one patch per staged file to each check in DIR/project-context.json.
 Answers are cached in DIR/output/cache/ by model, questions, project, and patch,
 so an unchanged file is not sent twice. --no-cache always calls the API.
-Every request is scanned for secrets first. A secret in the project fields or
+A check's optional "coding_style" names a document in DIR; its working-tree
+contents go to that check as state.coding_style, even when exclude or skip
+lists it. Every request is scanned for secrets first. A secret in the project fields or
 tree stops the gate; one in a check's questions skips that check; one in a
 patch skips that file.
 Exit 0 pass, 1 fail or a secret found, 2 usage or API error.
@@ -31,6 +33,8 @@ type gateCheck struct {
 	Threshold   *float64           `json:"threshold"`
 	PerQuestion map[string]float64 `json:"per_question"`
 	Skip        []string           `json:"skip"`
+	// CodingStyle is the raw coding_style value, so null can be told apart from a missing field.
+	CodingStyle json.RawMessage `json:"coding_style"`
 }
 
 func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
@@ -62,12 +66,21 @@ func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("%s: %w", filepath.Join(dir, "project-context.json"), err)
 	}
+	stylePaths, styles, err := loadStyles(dir, p.Checks)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", filepath.Join(dir, "project-context.json"), err)
+	}
 	state, err := projectState(dir, p)
 	if err != nil {
 		return 0, err
 	}
 	// Shared content goes with every request, so a secret there stops the gate before any request.
-	if err := scanRequest(request{Model: defaultModel, State: state}); err != nil {
+	// A coding_style document counts as shared, even when one check uses it.
+	err = styleSecrets(styles)
+	if err == nil {
+		err = scanRequest(request{Model: defaultModel, State: state})
+	}
+	if err != nil {
 		fmt.Fprintf(stdout, "%v\ngate: FAIL\n", err)
 		return 1, nil
 	}
@@ -127,6 +140,7 @@ func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 			// Each patch is named after its file, so the state key tells Jev which file it reads.
 			fileState := maps.Clone(state)
 			fileState["files"] = map[string]string{file + ".patch": patch}
+			addStyle(fileState, stylePaths[i], styles)
 			res, cached, err := cachedJev(dir, c.Check, request{Model: defaultModel, Questions: questions[i], State: fileState}, noCache, stderr)
 			var found secretsFound
 			switch {

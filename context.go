@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"cmp"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,7 +11,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 // about is what Jev reads about a project, next to its file tree.
@@ -29,7 +32,11 @@ type project struct {
 
 func contextCmd(args []string, stdout, _ io.Writer) (int, error) {
 	if len(args) > 0 && isHelp(args[0]) {
-		fmt.Fprintln(stdout, "Usage: jev-check context [DIR]   reads DIR/project-context.json (default: .)")
+		fmt.Fprint(stdout, `Usage: jev-check context [DIR]   reads DIR/project-context.json (default: .)
+Prints the project fields and tree that go with every request. When checks
+name a coding_style document, coding_styles maps each path to its contents
+once. A request holds only its own check's document, as state.coding_style.
+`)
 		return 0, nil
 	}
 	if len(args) > 1 {
@@ -43,9 +50,19 @@ func contextCmd(args []string, stdout, _ io.Writer) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	_, styles, err := loadStyles(dir, p.Checks)
+	if err != nil {
+		return 0, err
+	}
+	if err := styleSecrets(styles); err != nil {
+		return 0, err
+	}
 	state, err := projectState(dir, p)
 	if err != nil {
 		return 0, err
+	}
+	if len(styles) > 0 {
+		state["coding_styles"] = styles
 	}
 	return 0, writeJSON(stdout, state)
 }
@@ -145,4 +162,96 @@ Next:
   5. Run: jev-check gate %s
 `, path, filepath.Join(dir, ".env"), dir)
 	return 0, nil
+}
+
+// maxStyleBytes caps a coding_style document, so a large file cannot flood a request.
+const maxStyleBytes = 65536
+
+// loadStyles reads each check's coding_style document from dir's working tree, once per path.
+// It returns each check's normalized path, empty for none, and the contents by path.
+func loadStyles(dir string, checks []gateCheck) ([]string, map[string]string, error) {
+	paths := make([]string, len(checks))
+	var docs map[string]string
+	for i, c := range checks {
+		if c.CodingStyle == nil {
+			continue
+		}
+		path, err := stylePath(dir, c.CodingStyle)
+		if docs == nil {
+			docs = map[string]string{}
+		}
+		if _, ok := docs[path]; err == nil && !ok {
+			docs[path], err = readStyle(filepath.Join(dir, filepath.FromSlash(path)))
+		}
+		if err != nil {
+			return nil, nil, fmt.Errorf("check %s: coding_style %s: %w", c.Check, printable(string(c.CodingStyle)), err)
+		}
+		paths[i] = path
+	}
+	return paths, docs, nil
+}
+
+// stylePath checks that raw names a regular file inside dir, reached without
+// symlinks or .., and returns it with forward slashes.
+func stylePath(dir string, raw json.RawMessage) (string, error) {
+	var rel string
+	if json.Unmarshal(raw, &rel) != nil || strings.TrimSpace(rel) == "" {
+		return "", errors.New("must be a non-empty path string")
+	}
+	if filepath.IsAbs(rel) {
+		return "", errors.New("must be relative to the project folder")
+	}
+	sep := string(filepath.Separator)
+	if slices.Contains(strings.Split(filepath.FromSlash(rel), sep), "..") {
+		return "", errors.New("must not contain ..")
+	}
+	clean := filepath.Clean(filepath.FromSlash(rel))
+	path := dir
+	var info fs.FileInfo
+	for _, part := range strings.Split(clean, sep) {
+		path = filepath.Join(path, part)
+		var err error
+		if info, err = os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
+			return "", errors.New("no such file in the working tree")
+		} else if err != nil {
+			return "", err
+		}
+		if info.Mode()&fs.ModeSymlink != 0 {
+			return "", errors.New("must not go through a symlink")
+		}
+	}
+	if !info.Mode().IsRegular() {
+		return "", errors.New("must be a regular file")
+	}
+	return filepath.ToSlash(clean), nil
+}
+
+// readStyle reads a document of at most maxStyleBytes of UTF-8 text, exactly as it is.
+func readStyle(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxStyleBytes+1))
+	switch {
+	case err != nil:
+		return "", err
+	case len(data) > maxStyleBytes:
+		return "", fmt.Errorf("is larger than %d bytes", maxStyleBytes)
+	case !utf8.Valid(data):
+		return "", errors.New("is not valid UTF-8")
+	case bytes.IndexByte(data, 0) >= 0:
+		return "", errors.New("holds a NUL byte")
+	case strings.TrimSpace(string(data)) == "":
+		return "", errors.New("is empty")
+	}
+	return string(data), nil
+}
+
+// addStyle puts a check's document into its request state, when it has one.
+func addStyle(state map[string]any, path string, docs map[string]string) {
+	if path != "" {
+		state["coding_style"] = map[string]string{"path": path, "content": docs[path]}
+	}
 }
