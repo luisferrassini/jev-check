@@ -332,17 +332,24 @@ func TestGate(t *testing.T) {
 	}
 	writeFile(t, configPath(repo), `{ "checks": [{ "check": "public-release", "threshold": 0.2 }] }`)
 
+	// One unsafe patch is withheld; the clean staged README.md still reaches the API.
 	*requests = nil
 	writeFile(t, filepath.Join(repo, "app.py"), "aws = \"AKIA"+strings.Repeat("Q", 16)+"\"\n")
 	gitRun(t, repo, "add", "app.py")
-	out = wantCode(t, 1, "gate", repo)
-	if !strings.Contains(out, "SECRET  app.py.patch line") {
+	out = wantCode(t, 1, "gate", repo, "--no-cache")
+	if !strings.Contains(out, "SECRET  app.py.patch line") || !strings.Contains(out, "== public-release README.md\n") || !strings.HasSuffix(out, "gate: FAIL\n") {
 		t.Errorf("gate did not report the key:\n%s", out)
 	}
+	sentClean := false
 	for _, req := range *requests {
-		if req.State["files"].(map[string]any)["app.py.patch"] != nil {
+		files := req.State["files"].(map[string]any)
+		if files["app.py.patch"] != nil {
 			t.Error("gate sent a patch with a key")
 		}
+		sentClean = sentClean || files["README.md.patch"] != nil
+	}
+	if !sentClean {
+		t.Error("gate did not send the clean patch")
 	}
 }
 

@@ -1,8 +1,11 @@
 package main
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -33,6 +36,23 @@ func wantBlocked(t *testing.T, requests *[]request, leak string, args ...string)
 	return out
 }
 
+// outputFiles lists the files under project/.jev-check/output/, cache entries included,
+// so a test can tell that a blocked run wrote nothing.
+func outputFiles(t *testing.T, project string) []string {
+	t.Helper()
+	var files []string
+	err := filepath.WalkDir(filepath.Join(project, ".jev-check", "output"), func(path string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			files = append(files, path)
+		}
+		return err
+	})
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal(err)
+	}
+	return files
+}
+
 func TestAskPreflight(t *testing.T) {
 	requests := setup(t)
 	dir := t.TempDir()
@@ -45,6 +65,7 @@ func TestAskPreflight(t *testing.T) {
 		"escaped newlines":    {"PRIVATE", `{"a":"line one\n-----BEGIN RSA PRIV` + `ATE KEY-----\nabc"}`},
 		"assignment only":     {password, `{"db":{"password":"` + password + `"}}`},
 		"assignment a number": {"123456789012", `{"db":{"password":123456789012}}`},
+		"assignment in array": {password, `{"db":{"password":["x","` + password + `"]}}`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			state := writeFile(t, filepath.Join(dir, "state.json"), c.state)
@@ -79,8 +100,20 @@ func TestAskPreflight(t *testing.T) {
 	// Nothing blocked is saved or cached, and the credential is never needed.
 	writeSettings(t, ".", "")
 	wantBlocked(t, requests, awsKey, "ask", "public-release", "--file", leaky)
-	if fileExists("output") {
-		t.Error("a blocked request created output/")
+	if files := outputFiles(t, "."); files != nil || fileExists(filepath.Join(".jev-check", "output")) {
+		t.Errorf("a blocked request created .jev-check/output/: %v", files)
+	}
+}
+
+func TestScanRequestDedup(t *testing.T) {
+	// The value alone and its assignment both find github-token under the same label.
+	var found secretsFound
+	if !errors.As(scanRequest(request{State: map[string]any{"token": ghToken}}), &found) {
+		t.Fatal("token not found")
+	}
+	want := []string{"SECRET  request.state.token looks like github-token", "SECRET  request.state.token looks like quoted-secret"}
+	if !slices.Equal(found, want) {
+		t.Errorf("reports %q, want %q", found, want)
 	}
 }
 
@@ -114,14 +147,38 @@ func TestGatePreflight(t *testing.T) {
 		}
 	}
 	config("")
+	wantBlocked(t, requests, ghToken, "gate", repo, "--model", ghToken)
+
+	// A coding_style path is shared state too, and its report uses a safe label.
+	style := writeFile(t, filepath.Join(repo, ".jev-check/input", ghToken+".md"), "Rule one.\n")
+	writeFile(t, configPath(repo), `{"exclude":[".jev-check/input/"], "checks":[{"check":"public-release","threshold":0.2,"coding_style":".jev-check/input/`+ghToken+`.md"}]}`)
+	if out := wantBlocked(t, requests, ghToken, "gate", repo); !strings.Contains(out, "SECRET  coding_style document path looks like github-token\n") {
+		t.Errorf("gate output:\n%s", out)
+	}
+	os.Remove(style)
+
+	// A blocked question set fails the gate even with nothing staged.
+	writeFile(t, filepath.Join(repo, ".jev-check/input/questions/bad.json"), `{"questions":{"q":{"type":"noul","instructions":"`+ghToken+`"}}}`)
+	writeFile(t, configPath(repo), `{"exclude":[".jev-check/input/"], "checks":[{"check":"bad","threshold":0.2}]}`)
+	if out := wantBlocked(t, requests, ghToken, "gate", repo); !strings.HasSuffix(out, "gate: FAIL\n") || strings.Contains(out, "nothing staged") {
+		t.Errorf("gate output:\n%s", out)
+	}
+	if files := outputFiles(t, repo); files != nil {
+		t.Errorf("a blocked gate wrote %v", files)
+	}
+	config("")
 	writeFile(t, filepath.Join(repo, "a.txt"), "a\n")
 	gitRun(t, repo, "add", "a.txt")
 	wantCode(t, 0, "gate", repo) // fills the cache
+	saved := outputFiles(t, repo)
 
 	// A new tree entry is shared state, so the first scan stops it before any cache lookup.
 	named := writeFile(t, filepath.Join(repo, ghToken+".txt"), "x\n")
 	wantBlocked(t, requests, ghToken, "gate", repo)
 	os.Remove(named)
+	if files := outputFiles(t, repo); !slices.Equal(files, saved) {
+		t.Errorf("a blocked gate changed .jev-check/output/ from %v to %v", saved, files)
+	}
 
 	// A check whose questions look like secrets is skipped; clean checks still run.
 	writeFile(t, filepath.Join(repo, ".jev-check/input/questions/bad.json"), `{"questions":{"q":{"type":"noul","instructions":"`+ghToken+`"}}}`)
@@ -153,11 +210,15 @@ func TestEvalPreflight(t *testing.T) {
 		writeFile(t, filepath.Join(fixtures, "fail", q, "b.go.patch"), gitPatch(t, "bad-"+q+".go", "package b\n"))
 	}
 	wantCode(t, 0, "eval", "public-release", repo) // fills the cache
+	saved := outputFiles(t, repo)
 
 	writeFile(t, filepath.Join(fixtures, "fail", "english_only", "z.go.patch"), gitPatch(t, "z.go", "key = \""+awsKey+"\"\n"))
 	for _, args := range [][]string{{"eval", "public-release", repo}, {"eval", "public-release", repo, "--no-cache"}} {
 		if out := wantBlocked(t, requests, awsKey, args...); strings.Contains(out, "misses") || !strings.Contains(out, "fail/english_only/z.go.patch") {
 			t.Errorf("eval output after a block:\n%s", out)
 		}
+	}
+	if files := outputFiles(t, repo); !slices.Equal(files, saved) {
+		t.Errorf("a blocked eval changed .jev-check/output/ from %v to %v", saved, files)
 	}
 }

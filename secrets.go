@@ -134,12 +134,19 @@ func scanRequest(req request) error {
 	if reports == nil {
 		return nil
 	}
-	return secretsFound(slices.Compact(reports))
+	// The same location and kind can be found twice, as a value and as an assignment.
+	var unique []string
+	for _, report := range reports {
+		if !slices.Contains(unique, report) {
+			unique = append(unique, report)
+		}
+	}
+	return secretsFound(unique)
 }
 
 // scanValue scans each string with its line numbers, each object key, and each
-// scalar entry as a quoted assignment, since a value like abc123def456 only looks
-// like a secret next to a key like password. Labels use safe keys or entry numbers.
+// scalar entry or scalar array item as a quoted assignment, since a value like abc123def456
+// only looks like a secret next to a key like password. Labels use safe keys or entry numbers.
 func scanValue(label string, v any, reports *[]string) {
 	switch v := v.(type) {
 	case string:
@@ -155,6 +162,13 @@ func scanValue(label string, v any, reports *[]string) {
 			switch e := v[k].(type) {
 			case string, json.Number, bool:
 				*reports = append(*reports, secretReports(entry, fmt.Sprintf("%q: \"%v\"", k, e), false)...)
+			case []any:
+				for j, item := range e {
+					switch item.(type) {
+					case string, json.Number, bool:
+						*reports = append(*reports, secretReports(fmt.Sprintf("%s[%d]", entry, j), fmt.Sprintf("%q: \"%v\"", k, item), false)...)
+					}
+				}
 			}
 			scanValue(entry, v[k], reports)
 		}
