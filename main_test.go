@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -29,7 +30,7 @@ var jevAnswers string
 // fakeEndpoint is the fake server's URL, and fakeSettings points a project at it with the test key.
 var fakeEndpoint, fakeSettings string
 
-// setup moves into an empty temp project, so named checks come from the bundle,
+// setup moves into an empty temp project that holds every bundled check,
 // and points it at a fake server that answers each requested question,
 // unless jevAnswers overrides it. It returns the requests the server got.
 // gitInit points other projects at the same server.
@@ -40,7 +41,16 @@ func setup(t *testing.T) *[]request {
 	fakeEndpoint = fakeServer(t, &got)
 	fakeSettings = "TYPESAFE_API_KEY=test\nJEV_CHECK_ENDPOINT=" + fakeEndpoint + "\n"
 	writeSettings(t, ".", fakeSettings)
+	addBundled(t, ".")
 	return &got
+}
+
+// addBundled copies every bundled check into dir/.jev-check/input/, as jev-check add does.
+func addBundled(t *testing.T, dir string) {
+	t.Helper()
+	if err := addChecks(dir, bundledNames(), io.Discard); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // fakeServer starts a fake Jev server that appends each request it answers to got, and returns its URL.
@@ -100,12 +110,13 @@ func writeSettings(t *testing.T, dir, content string) {
 }
 
 // gitInit makes dir a git repository with the fake server's settings. The settings
-// file and output/ stay out of git, as the tutorial's .gitignore keeps them out.
+// file, output/, and the copied checks stay out of git and out of the tree it sends.
 func gitInit(t *testing.T, dir string) {
 	t.Helper()
 	gitRun(t, dir, "init", "-q")
-	writeFile(t, filepath.Join(dir, ".git", "info", "exclude"), ".jev-check/.env\n.jev-check/output/\n")
+	writeFile(t, filepath.Join(dir, ".git", "info", "exclude"), ".jev-check/.env\n.jev-check/output/\n.jev-check/input/\n")
 	writeSettings(t, dir, fakeSettings)
+	addBundled(t, dir)
 }
 
 // jev runs one command and returns its exit code and stdout.
@@ -143,7 +154,7 @@ func TestAsk(t *testing.T) {
 	setup(t)
 	patch := writeFile(t, filepath.Join(t.TempDir(), "change.patch"), "print(\"hello\")\n")
 
-	if out := wantCode(t, 0, "list"); !strings.Contains(out, "public-release [bundled, needs --file]\n") {
+	if out := wantCode(t, 0, "list"); !strings.Contains(out, "public-release [project, needs --file]\n") {
 		t.Errorf("list: %s", out)
 	}
 

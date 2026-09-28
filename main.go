@@ -13,8 +13,10 @@ import (
 const usage = `Usage: jev-check <command> [args]
 
 Commands:
-  init [DIR]                create DIR/.jev-check/project-context.json (default: .)
-  list [DIR]                list the bundled checks and DIR/.jev-check/input/questions/
+  init [DIR]                set up DIR/.jev-check/ with its config and checks (default: .)
+  add [--dir DIR] <check>...
+                            copy bundled checks into DIR/.jev-check/input/
+  list [DIR]                list DIR/.jev-check/input/questions/ and the bundled checks
   ask <check> [options]     ask one check (see jev-check ask --help)
   context [DIR]             print the project state Jev sees for DIR
   secrets PATCH...          scan patches for secrets, including removed lines
@@ -25,8 +27,9 @@ Commands:
   doctor [DIR]              show DIR's settings and setup problems, offline
 
 Every file jev-check reads or writes in a project is under .jev-check/. ask,
-gate, and eval read the API key, endpoint, and model from the project's
-.jev-check/.env and from nothing else (see jev-check doctor --help).
+gate, and eval run only the checks in .jev-check/input/, and read the API key,
+endpoint, and model from .jev-check/.env and from nothing else (see
+jev-check doctor --help).
 
 Exit codes: 0 ok, 1 a check failed or a request looked like it held a secret,
 2 usage or API error. A request that looks like it holds a secret is never
@@ -41,7 +44,7 @@ func main() {
 
 func run(args []string, stdout, stderr io.Writer) int {
 	commands := map[string]command{
-		"init": initCmd, "list": listCmd, "ask": askCmd, "context": contextCmd,
+		"init": initCmd, "add": addCmd, "list": listCmd, "ask": askCmd, "context": contextCmd,
 		"secrets": secretsCmd, "judge": judgeCmd, "gate": gateCmd, "eval": evalCmd, "doctor": doctorCmd,
 	}
 	if len(args) == 0 {

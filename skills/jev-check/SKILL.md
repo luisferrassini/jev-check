@@ -12,7 +12,7 @@ description: Gate staged task changes on a project's Jev checks, or change those
 - The executable is the path the user gave you, quoted. Otherwise it is `jev-check` on `PATH`. Run it directly, never through `eval` or `sh -c`. If `command -v jev-check` finds nothing, report that it is missing, link the setup guide above, and stop this skill.
 - Run `jev-check --help` first when you are not sure which binary you have.
 - Build it with `go build -o jev-check .` only when the task changes jev-check's own Go source, in its own checkout.
-- `<project>` is the folder that holds `.jev-check/`, where every jev-check file lives. Pass it explicitly. The tool does not search parent folders. No `.jev-check/project-context.json` is a setup problem, and so is a `project-context.json` left at the project root by an older version: report it and link the setup guide. Leave rules and thresholds to the user.
+- `<project>` is the folder that holds `.jev-check/`, where every jev-check file lives. Pass it explicitly. The tool does not search parent folders. No `.jev-check/project-context.json` is a setup problem, and so is a `project-context.json` left at the project root by an older version: report it and link the setup guide. So is `no check "<name>": ... does not exist`, which means `.jev-check/input/questions/` lacks a check the config names: report it and suggest `jev-check init <project>`. Leave rules and thresholds to the user.
 
 The user's approval to run the gate covers reruns inside the retry budget below.
 
@@ -49,7 +49,7 @@ A pass does not authorize a commit, a reset, or work outside the task.
 
 ## Changing a check (only when asked)
 
-A check is `.jev-check/input/questions/<name>.json` in the project, or a bundled check (`jev-check list` shows which). Its threshold is in `.jev-check/project-context.json`, and `.jev-check/fixtures/<name>/` proves the threshold.
+A check is `.jev-check/input/questions/<name>.json` in the project; jev-check runs no other copy. Its threshold is in `.jev-check/project-context.json`, and `.jev-check/fixtures/<name>/` proves the threshold.
 
 1. Add the case that prompted the change: a missed problem as `.jev-check/fixtures/<name>/fail/<question>/<file>.patch`, a wrongly failed clean file as `.jev-check/fixtures/<name>/pass/<file>.patch`. Make each patch in a disposable repository: stage the file at its real path there and run `git diff --cached --relative -- <file>`. That keeps unrelated staged work in the project untouched.
 2. Edit the question so yes is the good outcome, with concrete examples in `criteria`.

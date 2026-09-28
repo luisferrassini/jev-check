@@ -20,7 +20,7 @@ func TestShippedChecksDryRun(t *testing.T) {
 	list := wantCode(t, 0, "list")
 	for _, path := range names {
 		name := strings.TrimSuffix(filepath.Base(path), ".json")
-		if !strings.Contains(list, name+" [bundled") {
+		if !strings.Contains(list, name+" [project") {
 			t.Errorf("list does not show %s:\n%s", name, list)
 		}
 		args := []string{"ask", "--dry-run", name}

@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"cmp"
-	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,7 +10,6 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
-	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -24,9 +22,9 @@ const askUsage = `Usage:
   jev-check ask <questions.json> [state.json] [--file PATH]... [options]
 
 A check name reads .jev-check/input/questions/<name>.json and, if it exists,
-.jev-check/input/states/<name>.json, from the current directory, else from the
-checks bundled in the binary. A first argument ending in .json is a path
-instead. The API key, endpoint, and model come from ./.jev-check/.env (see
+.jev-check/input/states/<name>.json, from the current directory. Copy a bundled
+check there first with jev-check add <name>. A first argument ending in .json
+is a path instead. The API key, endpoint, and model come from ./.jev-check/.env (see
 jev-check doctor). Answers go to ./.jev-check/output/.
 Each --file PATH adds that file to the state as files[PATH] = <content>.
 
@@ -65,7 +63,9 @@ type answer struct {
 }
 
 const listUsage = `Usage: jev-check list [DIR]   (default: .)
-Lists the bundled checks and DIR/.jev-check/input/questions/. A check in DIR shadows a bundled one.
+Lists the checks in DIR/.jev-check/input/questions/, which ask, gate, and eval
+run, then the bundled checks DIR does not have yet. jev-check add <name> copies
+a bundled check into DIR/.jev-check/input/.
 `
 
 func listCmd(args []string, stdout, _ io.Writer) (int, error) {
@@ -80,43 +80,47 @@ func listCmd(args []string, stdout, _ io.Writer) (int, error) {
 	if info, err := os.Stat(project); err != nil || !info.IsDir() {
 		return 0, fmt.Errorf("%s is not a folder", project)
 	}
-	names, _ := fs.Glob(bundled, bundleDir+"/input/questions/*.json")
 	entries, err := os.ReadDir(filepath.Join(project, jevDir, "input", "questions"))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return 0, err
 	}
+	var have []string
 	for _, e := range entries {
-		names = append(names, e.Name())
-	}
-	for i, n := range names {
-		names[i] = path.Base(n)
-	}
-	slices.Sort(names)
-	for _, file := range slices.Compact(names) {
-		name, ok := strings.CutSuffix(file, ".json")
+		name, ok := strings.CutSuffix(e.Name(), ".json")
 		if !ok {
 			continue
 		}
 		if !checkName.MatchString(name) {
-			return 0, fmt.Errorf("%s: check names use only letters, digits, - and _", filepath.Join(project, jevDir, "input", "questions", file))
+			return 0, fmt.Errorf("%s: check names use only letters, digits, - and _", filepath.Join(project, jevDir, "input", "questions", e.Name()))
 		}
 		c, err := findCheck(project, name)
 		if err != nil {
 			return 0, err
 		}
-		var check struct{ Title, Description string }
 		if _, err := parseQuestions(c.path, c.data); err != nil {
 			return 0, err
 		}
-		json.Unmarshal(c.data, &check)
 		state := "needs --file"
 		if c.state != nil {
 			state = "has default state"
 		}
-		fmt.Fprintf(stdout, "%s [%s, %s]\n  %s\n  %s\n\n", name, c.source, state,
-			cmp.Or(check.Title, "(no title)"), cmp.Or(check.Description, "(no description)"))
+		printCheck(stdout, name, "project, "+state, c.data)
+		have = append(have, name)
+	}
+	for _, name := range bundledNames() {
+		if !slices.Contains(have, name) {
+			data, _ := bundled.ReadFile(bundledPath("questions", name))
+			printCheck(stdout, name, "bundled, not added: jev-check add "+name, data)
+		}
 	}
 	return 0, nil
+}
+
+func printCheck(w io.Writer, name, tag string, data []byte) {
+	var check struct{ Title, Description string }
+	json.Unmarshal(data, &check)
+	fmt.Fprintf(w, "%s [%s]\n  %s\n  %s\n\n", name, tag,
+		cmp.Or(check.Title, "(no title)"), cmp.Or(check.Description, "(no description)"))
 }
 
 func askCmd(args []string, stdout, _ io.Writer) (int, error) {
@@ -226,38 +230,21 @@ func askCmd(args []string, stdout, _ io.Writer) (int, error) {
 	return 0, nil
 }
 
-// bundleDir is where this repository keeps the published checks. It is tracked,
-// unlike the repository's own .jev-check/, so a clone can build the bundle.
-const bundleDir = ".jev-check-example"
-
-// bundled holds the published checks, so an installed binary needs no files beside it.
-//
-//go:embed .jev-check-example/input/questions/*.json .jev-check-example/input/states/*.json
-var bundled embed.FS
-
 // foundCheck is a named check's question file and its optional default state.
-// path names the question file in errors. source is "project" or "bundled".
+// path names the question file in errors.
 type foundCheck struct {
-	path, source string
-	data, state  []byte
+	path        string
+	data, state []byte
 }
 
-// findCheck reads project/.jev-check/input/questions/<name>.json, else the bundled file of that name.
-// The default state comes from the same place, so a project check never inherits a bundled state.
-// Only a missing file falls back to the bundle; any other read error is returned.
+// findCheck reads project/.jev-check/input/questions/<name>.json and its optional default state
+// from input/states/. It never reads the bundle: a project runs only the checks it holds.
 func findCheck(project, name string) (foundCheck, error) {
 	read := func(kind string) ([]byte, error) {
 		return os.ReadFile(filepath.Join(project, jevDir, "input", kind, name+".json"))
 	}
-	c := foundCheck{path: filepath.Join(project, jevDir, "input", "questions", name+".json"), source: "project"}
+	c := foundCheck{path: filepath.Join(project, jevDir, "input", "questions", name+".json")}
 	data, err := read("questions")
-	if errors.Is(err, fs.ErrNotExist) {
-		read = func(kind string) ([]byte, error) {
-			return bundled.ReadFile(bundleDir + "/input/" + kind + "/" + name + ".json")
-		}
-		c = foundCheck{path: "bundled input/questions/" + name + ".json", source: "bundled"}
-		data, err = read("questions")
-	}
 	if err != nil {
 		return c, err
 	}
@@ -282,7 +269,7 @@ func parseQuestions(path string, data []byte) (map[string]json.RawMessage, error
 	return check.Questions, nil
 }
 
-// loadCheck reads a check by name, from project or the bundle, or by path.
+// loadCheck reads a check by name from project/.jev-check/input/, or by path.
 // It returns the check's name, its questions, and its default state, which is nil when there is none.
 func loadCheck(project, arg string) (string, map[string]json.RawMessage, []byte, error) {
 	name, path := strings.TrimSuffix(filepath.Base(arg), ".json"), arg
@@ -298,8 +285,10 @@ func loadCheck(project, arg string) (string, map[string]json.RawMessage, []byte,
 		c, err = findCheck(project, arg)
 		path, data, state = c.path, c.data, c.state
 	}
-	if errors.Is(err, fs.ErrNotExist) {
-		return "", nil, nil, fmt.Errorf("no check %q (run jev-check list)", name)
+	if errors.Is(err, fs.ErrNotExist) && path != arg {
+		return "", nil, nil, missingCheck(project, name)
+	} else if errors.Is(err, fs.ErrNotExist) {
+		return "", nil, nil, fmt.Errorf("no check file %s", arg)
 	} else if err != nil {
 		return "", nil, nil, err
 	}

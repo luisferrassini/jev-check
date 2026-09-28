@@ -121,10 +121,14 @@ func excludes(patterns []string) []string {
 }
 
 const initUsage = `Usage: jev-check init [DIR]   (default: .)
-Creates DIR/.jev-check/project-context.json with the starting defaults, and
-DIR/.jev-check/.gitignore to keep .env and output/ out of Git. DIR must be in a
-git working tree. An existing config is never replaced; an existing .gitignore
-is left as it is.
+Sets up DIR/.jev-check/, creating each of these files that is missing:
+  project-context.json   the config, with the starting defaults
+  .gitignore             keeps .env and output/ out of Git
+  README.md              what each file in .jev-check/ is for
+  input/questions/, input/states/
+                         a copy of each bundled check the config names
+DIR must be in a git working tree. A file that already exists is kept, never
+replaced, so running init again restores only what is missing.
 `
 
 // initConfig is the starting project-context.json. Its defaults are this repository's, not a policy for every project.
@@ -164,27 +168,49 @@ func initCmd(args []string, stdout, _ io.Writer) (int, error) {
 		return 0, fmt.Errorf("%s is not a folder", filepath.Join(dir, jevDir))
 	}
 	path := configPath(dir)
-	if err := createFile(path, initConfig); errors.Is(err, fs.ErrExist) {
-		return 0, fmt.Errorf("%s already exists; inspect it instead of running init", path)
-	} else if err != nil {
+	var p project
+	switch err := createFile(path, initConfig); {
+	case errors.Is(err, fs.ErrExist):
+		fmt.Fprintf(stdout, "kept    %s\n", path)
+		if err := readJSON(path, &p); err != nil {
+			return 0, err
+		}
+	case err != nil:
 		if mkErr == nil {
 			os.Remove(filepath.Join(dir, jevDir)) // only this run made it; Remove keeps a non-empty folder
 		}
 		return 0, err
+	default:
+		fmt.Fprintf(stdout, "created %s\n", path)
+		json.Unmarshal([]byte(initConfig), &p)
 	}
 	ignore := filepath.Join(dir, jevDir, ".gitignore")
-	if err := createFile(ignore, ".env\noutput/\n"); err != nil && !errors.Is(err, fs.ErrExist) {
+	if err := installFile(ignore, ".env\noutput/\n", stdout); err != nil {
 		return 0, err
 	}
-	fmt.Fprintf(stdout, `created %s
-Next:
-  1. Review it: purpose, rules, exclude, and the public-release check at threshold 0.5.
+	readme, _ := bundled.ReadFile(bundleDir + "/README.md")
+	if err := installFile(filepath.Join(dir, jevDir, "README.md"), string(readme), stdout); err != nil {
+		return 0, err
+	}
+	var names []string
+	for _, c := range p.Checks {
+		if isBundled(c.Check) && !slices.Contains(names, c.Check) {
+			names = append(names, c.Check)
+		}
+	}
+	if err := addChecks(dir, names, stdout); err != nil {
+		return 0, err
+	}
+	fmt.Fprintf(stdout, `Next:
+  1. Review %s: purpose, rules, exclude, and each check with its threshold.
+     The checks it runs are the files in %s; edit them there.
   2. Put TYPESAFE_API_KEY=<key> in %s. No other place is read.
      %s keeps it and output/ out of Git.
   3. Check the setup: jev-check doctor %s
   4. Stage the work you want checked: git add -- <path>
   5. Run: jev-check gate %s
-`, path, filepath.Join(dir, settingsFile), ignore, shellQuote(dir), shellQuote(dir))
+`, path, filepath.Join(dir, jevDir, "input", "questions")+string(filepath.Separator),
+		filepath.Join(dir, settingsFile), ignore, shellQuote(dir), shellQuote(dir))
 	return 0, nil
 }
 

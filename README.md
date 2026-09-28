@@ -8,45 +8,23 @@ The author wrote [a note about this project](#a-note-from-the-author) by hand. T
 
 The commands below are for Bash. Each step says where to run it.
 
-### 1. Check the prerequisites
+### 1. Install jev-check
 
-You need Go 1.26 or newer and Git:
-
-```bash
-go version    # go1.26 or newer
-git --version
-```
-
-### 2. Install jev-check
-
-This step downloads the source, so it needs the network. Run it from any folder where you keep code:
+On Linux or macOS, with Git installed:
 
 ```bash
-git clone https://github.com/luisferrassini/jev-check.git
-cd jev-check
-go install .
+curl -fsSL https://raw.githubusercontent.com/luisferrassini/jev-check/main/install.sh | sh
 ```
 
-`go install` puts the binary in `$(go env GOBIN)`, or `$(go env GOPATH)/bin` when `GOBIN` is empty. Add that folder to your `PATH` if it is not there yet. Then, from any folder:
+The script downloads the binary for your system from the latest GitHub release, checks its SHA-256, and puts it in `~/.local/bin`. If that folder is not on your `PATH`, it adds one line to your shell's startup file (`~/.bashrc`, `~/.zshrc`, `~/.config/fish/config.fish`, or `~/.profile`) and prints it. Open a new terminal, then:
 
 ```bash
 jev-check --help
 ```
 
-The bundled checks are built into the binary. It needs no files beside it, and you can delete the checkout after installing.
+The script prints a warning if an older `jev-check`, for example one from `go install`, comes first on your `PATH`. Run it again to update. To choose the folder, set `JEV_CHECK_INSTALL_DIR`. To leave your startup files alone, set `JEV_CHECK_NO_MODIFY_PATH=1`. To pin a release, set `JEV_CHECK_VERSION=v0.1.0`. On other systems, or to build from source with Go 1.26 or newer, run `go install github.com/luisferrassini/jev-check@latest` and add `$(go env GOPATH)/bin` to your `PATH`.
 
-### 3. Try it without an API key
-
-From any folder, with no key set:
-
-```bash
-jev-check list
-jev-check ask example --dry-run
-```
-
-`list` shows the bundled checks: `coding-style`, `example`, `help-text-honesty`, `maintainability`, `no-leftovers`, `public-release`, `secret-handling`, and `test-quality`. `ask example --dry-run` prints the request it would send, as JSON with `model`, `questions`, and `state`, and exits 0. Nothing is sent, so this is a preview, not a judgment of the sample script.
-
-### 4. Make a practice repository
+### 2. Make a practice repository
 
 A disposable repository keeps your real projects out of the first run. The path has a space on purpose, to show that quoting works:
 
@@ -56,7 +34,32 @@ mkdir -p "$demo" && cd "$demo" && git init -q
 jev-check init
 ```
 
-`init` writes `.jev-check/project-context.json` and `.jev-check/.gitignore`, and prints the next steps. It never replaces an existing configuration. Every jev-check file in a project lives in `.jev-check/`, so deleting that folder removes jev-check. Open the configuration and fill in `purpose` and `rules`, for example:
+`init` creates `.jev-check/` and prints each file it made:
+
+| File | What it is |
+| --- | --- |
+| `.jev-check/project-context.json` | The configuration, with the `public-release` check at threshold 0.5. |
+| `.jev-check/input/questions/public-release.json` | The questions that check sends. jev-check runs only the checks in this folder. |
+| `.jev-check/README.md` | A short guide to the folder, for whoever maintains it. |
+| `.jev-check/.gitignore` | Keeps your key and the saved answers out of Git. |
+
+Running `init` again never replaces a file. It creates only the missing ones. Every jev-check file in a project lives in `.jev-check/`, so deleting that folder removes jev-check.
+
+### 3. Try it without an API key
+
+Still in `"$demo"`, with no key set:
+
+```bash
+jev-check list
+jev-check add example
+jev-check ask example --dry-run
+```
+
+`list` shows the checks in `.jev-check/input/questions/`, then the bundled checks you have not added: `coding-style`, `example`, `help-text-honesty`, `maintainability`, `no-leftovers`, `secret-handling`, and `test-quality`. `add example` copies the `example` check and its sample state into `.jev-check/input/`. `ask example --dry-run` prints the request it would send, as JSON with `model`, `questions`, and `state`, and exits 0. Nothing is sent, so this is a preview, not a judgment of the sample script.
+
+### 4. Describe the project
+
+Open `.jev-check/project-context.json` and fill in `purpose` and `rules`, for example:
 
 ```json
 {
@@ -68,7 +71,7 @@ jev-check init
 }
 ```
 
-The `public-release` check asks whether each file can go into a public GitHub repository as it is. It does not judge whether the code works. See [Checks](#checks) for the others.
+The `public-release` check asks whether each file can go into a public GitHub repository as it is. It does not judge whether the code works. Its questions are in `.jev-check/input/questions/public-release.json`; edit them there to change what it asks. See [Checks](#checks) for the others.
 
 `.jev-check/.gitignore` keeps the settings file and the saved answers out of Git. `exclude` keeps the whole `.jev-check/` folder out of the tree sent to Jev and out of the gate.
 
@@ -149,14 +152,18 @@ The gate reads the staged version of each file. After you edit a file, run `git 
 
 ### 9. Use it on your project
 
-Go to your project's root folder and repeat steps 4 to 7 there, without the `mktemp` and `git init` lines. In step 7, skip the `printf` line, which would overwrite your `README.md`. Stage one of your own changed files instead, with `git add -- <file>`. If the project already has a `.jev-check/project-context.json`, `init` stops and leaves it alone. Commit `.jev-check/` so everyone uses the same checks; its `.gitignore` keeps the key and the answers out. If the project has a `project-context.json` at its root from an older version, see [Moving to `.jev-check/`](#moving-to-jev-check). To let a coding agent run the gate, see [Use it from an agent](#use-it-from-an-agent).
+Go to your project's root folder and repeat steps 2 to 7 there, without the `mktemp` and `git init` lines. In step 7, skip the `printf` line, which would overwrite your `README.md`. Stage one of your own changed files instead, with `git add -- <file>`. If the project already has a `.jev-check/project-context.json`, `init` keeps it and every other existing file, and creates only what is missing. Commit `.jev-check/` so everyone uses the same checks; its `.gitignore` keeps the key and the answers out.
+
+A project set up by an older version has no `.jev-check/input/`, because those versions ran the bundled checks from inside the binary. Now `gate` exits 2 with `no check "public-release": .../input/questions/public-release.json does not exist`. Run `jev-check init` once in the project root. It copies each bundled check that `checks` names and writes `.jev-check/README.md`. Then commit the new files. If the project has a `project-context.json` at its root from an older version, see [Moving to `.jev-check/`](#moving-to-jev-check). To let a coding agent run the gate, see [Use it from an agent](#use-it-from-an-agent).
 
 ## Troubleshooting
 
 | Symptom | Fix |
 | --- | --- |
 | `go: command not found` or `git: command not found` | Install Go 1.26 or newer, or Git, and open a new terminal. |
-| `jev-check: command not found` | Add `$(go env GOBIN)`, or `$(go env GOPATH)/bin`, to your `PATH`. |
+| `jev-check: command not found` | Open a new terminal after the install script. If it still fails, add the folder the script printed (default `~/.local/bin`) to your `PATH`. |
+| `jev-check` runs an old version | Run `command -v jev-check`. If it is not in `~/.local/bin`, delete that older binary, which is often in `$(go env GOPATH)/bin`. |
+| `no check "<name>": .../input/questions/<name>.json does not exist` | The project does not have that check. For a check in `checks`, run `jev-check init`. For any bundled check, run `jev-check add <name>`. |
 | `open .../.jev-check/project-context.json: no such file or directory` | You are not in the project folder, or it has no configuration yet. `cd` into the project, or pass it as `jev-check gate <project>`, and run `jev-check init` if needed. There is no search in parent folders. |
 | `.../project-context.json is no longer read` | The project uses the old layout. Move the files as in [Moving to `.jev-check/`](#moving-to-jev-check). |
 | `fatal: not a git repository` or `... is not in a git working tree` | Run `git init` in the project, or point at the right folder. |
@@ -198,12 +205,13 @@ There is so much AI slop everywhere so I made sure to write at least this sectio
 
 ## Where things live
 
-The bundled checks are built into the binary, so it needs no files beside it. Everything else is in the `.jev-check/` folder of the project you run it in. Nothing is read from the project root:
+Everything jev-check reads or writes is in the `.jev-check/` folder of the project you run it in. Nothing is read from the project root or from beside the binary. The binary carries copies of the bundled checks, but only as templates: `init` and `add` copy them into the project, and `ask`, `gate`, and `eval` run only the project's copies.
 
 | Item | Location |
 | --- | --- |
 | Project configuration | `<project>/.jev-check/project-context.json` (`jev-check init` creates one) |
-| Custom checks and default states | `<project>/.jev-check/input/questions/` and `<project>/.jev-check/input/states/`; a project check shadows a bundled check of the same name |
+| Checks and default states | `<project>/.jev-check/input/questions/` and `<project>/.jev-check/input/states/` (`jev-check add <check>` copies a bundled one) |
+| A guide to the folder | `<project>/.jev-check/README.md` (`jev-check init` writes it) |
 | API key, endpoint, and model | `<project>/.jev-check/.env`; see [Configuration](#configuration) |
 | Saved requests and responses | `<project>/.jev-check/output/` |
 | Gate and eval cache | `<project>/.jev-check/output/cache/v2/` |
@@ -211,15 +219,15 @@ The bundled checks are built into the binary, so it needs no files beside it. Ev
 
 Paths inside the configuration (`exclude`, `skip`, `folders`, `coding_style`) stay relative to `<project>`, not to `.jev-check/`.
 
-`gate`, `eval`, `context`, `doctor`, `init`, and `list` take the project folder as `DIR` (default: the current folder). `ask` uses the current folder. There is no search in parent folders.
+`gate`, `eval`, `context`, `doctor`, `init`, and `list` take the project folder as `DIR`, and `add` takes it as `--dir DIR` (default: the current folder). `ask` uses the current folder. There is no search in parent folders.
 
-For development, `go build -o jev-check .` still works. This repository ignores its own `.jev-check/`. It tracks its configuration, the bundled checks, and their fixtures in `.jev-check-example/`, and the binary embeds the checks from there. To work on it, link them into `.jev-check/` once, so edits to a check apply without a rebuild:
+For development, `go build -o jev-check .` still works. This repository ignores its own `.jev-check/`. It tracks its configuration, the bundled checks, their fixtures, and the folder guide in `.jev-check-example/`, and the binary embeds the checks and the guide from there. To work on it, link them into `.jev-check/` once, so edits to a check apply here without a rebuild:
 
 ```bash
 mkdir -p .jev-check && ln -s ../.jev-check-example/project-context.json ../.jev-check-example/input ../.jev-check-example/fixtures .jev-check/
 ```
 
-Edits to bundled checks elsewhere need a rebuild.
+Other projects keep their own copies, so a change to a bundled check reaches them only through a rebuild and `jev-check add` (see `.jev-check/README.md` in any project).
 
 ### Moving to `.jev-check/`
 
@@ -246,7 +254,7 @@ Older versions read `input/`, `.env`, and `output/` from the binary's folder. To
 
 ## Use it from an agent
 
-[`skills/jev-check/SKILL.md`](skills/jev-check/SKILL.md) is the one source of the agent skill. It tells an agent to stage only its own changes, run `jev-check gate <project>`, act on each result, and stop after three runs. Install the `jev-check` binary first (see [Install jev-check](#2-install-jev-check)): the skill uses the one on `PATH`, or a path you give the agent.
+[`skills/jev-check/SKILL.md`](skills/jev-check/SKILL.md) is the one source of the agent skill. It tells an agent to stage only its own changes, run `jev-check gate <project>`, act on each result, and stop after three runs. Install the `jev-check` binary first (see [Install jev-check](#1-install-jev-check)): the skill uses the one on `PATH`, or a path you give the agent.
 
 Copy the skill into the project where the agent works. Pick the folder your agent reads project skills from:
 
@@ -374,6 +382,8 @@ eval: 0 misses in 21 fixtures
 
 In this run with `jev-latest` on 2026-09-26, every clean fixture scored 0.83 or more and every problem scored 0.22 or less, so a threshold of 0.5 separates them with a wide margin on both sides. Scores vary between runs. A question that could not separate its fixtures was removed.
 
+An opt-in check is not in a project until you add it. Run `jev-check add <check>`, then add its entry, as each check below shows, to `checks`. Running `jev-check init` after you edit `checks` also copies every bundled check it names.
+
 `coding-style` is opt-in. It judges added or changed code against two rules in a project document: `clear_names` and `actionable_errors`. See [Coding style](#coding-style).
 
 `maintainability` is opt-in and covers Go source only. It makes two narrow judgments about new code in one patch:
@@ -414,7 +424,7 @@ It finds credentials by name and use, not by value, so it does not replace the [
 
 It fails only when the patch itself shows the mismatch, such as a whole argument parser with no such flag. When the parser or the code is not visible, the file passes, and so do documentation and files with no help text. A pass does not mean the help is complete. To enable it, add `{ "check": "help-text-honesty", "threshold": 0.47 }` to `checks`. The scores behind the threshold are in [`.jev-check-example/fixtures/help-text-honesty/CALIBRATION.md`](.jev-check-example/fixtures/help-text-honesty/CALIBRATION.md). To evaluate it, use the disposable project from [Evaluating an opt-in check](#evaluating-an-opt-in-check) with `.jev-check-example/fixtures/help-text-honesty`, no `CODING_STYLE.md`, and `{"check":"help-text-honesty","threshold":0.47}`.
 
-`example` is a first check to try. It runs on a bundled script, so it needs no `--file`.
+`example` is a first check to try. `jev-check add example` also copies its default state, `.jev-check/input/states/example.json`, which holds a sample script, so it needs no `--file`.
 
 ## Coding style
 
@@ -448,6 +458,7 @@ git -C "$tmp" init -q
 mkdir -p "$tmp/.jev-check/fixtures"
 cp -R .jev-check-example/fixtures/coding-style "$tmp/.jev-check/fixtures/"
 cp CODING_STYLE.md "$tmp/"
+jev-check add --dir "$tmp" coding-style
 printf '%s\n' '{"exclude":[".jev-check/"],"checks":[{"check":"coding-style","threshold":0.5,"coding_style":"CODING_STYLE.md"}]}' > "$tmp/.jev-check/project-context.json"
 cp .jev-check/.env "$tmp/.jev-check/"   # the key
 jev-check eval coding-style "$tmp" --no-cache
@@ -498,8 +509,9 @@ New checks are welcome on the same terms: a question file, fixtures on both side
 ## Other commands
 
 ```bash
-jev-check init [DIR]                             # create DIR/.jev-check/, never replacing a config
-jev-check list [DIR]                             # checks, with their source, titles, and descriptions
+jev-check init [DIR]                             # create DIR/.jev-check/, or restore its missing files
+jev-check add [--dir DIR] <check>...             # copy bundled checks into DIR/.jev-check/input/
+jev-check list [DIR]                             # the project's checks, then the bundled ones not added
 jev-check ask <check> --file PATH --threshold N  # ask one check about any files
 jev-check ask draft.json --file PATH --dry-run   # print the request for a draft check
 jev-check context .                              # the project state Jev sees
@@ -513,7 +525,9 @@ jev-check <command> --help
 
 ## Layout
 
-- `ask.go` holds `list`, `ask`, and the bundled checks.
+- `ask.go` holds `list` and `ask`, and reads a project's checks.
+- `bundle.go` embeds the bundled checks and the folder guide, and holds `add`.
+- `install.sh` installs a release binary. [`.github/workflows/release.yml`](.github/workflows/release.yml) builds the binaries when a `v*` tag is pushed.
 - `context.go` builds the project state from `.jev-check/project-context.json` and the file tree, and holds `init`.
 - `secrets.go` scans patches and whole requests for secrets locally, before anything is sent.
 - `judge.go` applies thresholds to answers.
@@ -522,7 +536,8 @@ jev-check <command> --help
 - `settings.go` reads `.jev-check/.env` and holds `doctor`.
 - `main_test.go` and the other `*_test.go` files test every command offline with a fake Jev server. Run `go test ./...`.
 - `.jev-check-example/project-context.json` is this repository's configuration.
-- `.jev-check-example/input/questions/<name>.json` holds one check. `.jev-check-example/input/states/<name>.json` is an optional default state for it. Both are built into the binary.
+- `.jev-check-example/input/questions/<name>.json` holds one check. `.jev-check-example/input/states/<name>.json` is an optional default state for it. Both are built into the binary, for `init` and `add` to copy.
+- `.jev-check-example/README.md` is the guide that `init` writes to `.jev-check/README.md`.
 - `.jev-check-example/fixtures/<check>/` holds the patches that prove a check's threshold.
 - `CODING_STYLE.md` holds this repository's coding rules, for people and the `coding-style` check.
 
