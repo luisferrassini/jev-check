@@ -505,7 +505,104 @@ Found a file the gate gets wrong, or a better way to ask? Open a pull request wi
 
 New checks are welcome on the same terms: a question file, fixtures on both sides, and the eval output.
 
-## Other commands
+## System diagram
+
+jev-check is one binary with ten commands. Every command reads and writes only inside `<project>/.jev-check/`, runs `git` for the tree and the staged patches, and sends requests to one endpoint. Every request passes the local secret scan before it is printed, cached, saved, or sent.
+
+```mermaid
+flowchart LR
+    user["Person or coding agent"] --> run["main.go: run()<br/>picks the command"]
+
+    subgraph cmds["Commands"]
+        direction TB
+        setup["init, add, list"]
+        offline["context, doctor, secrets"]
+        judgeCmd["judge"]
+        api["ask, gate, eval"]
+    end
+    run --> setup
+    run --> offline
+    run --> judgeCmd
+    run --> api
+
+    subgraph bin["Inside the binary"]
+        direction TB
+        bundle["Embedded bundle<br/>.jev-check-example/input/<br/>and README.md"]
+        settings["Settings loader<br/>settings.go"]
+        scan["Secret scan<br/>secrets.go"]
+        cache["Cache lookup<br/>sha256 of endpoint + request"]
+        judgeLib["Threshold judge<br/>judge.go"]
+    end
+
+    subgraph proj["Project folder"]
+        direction TB
+        cfg[".jev-check/project-context.json"]
+        env[".jev-check/.env<br/>key, endpoint, model"]
+        input[".jev-check/input/questions/<br/>.jev-check/input/states/"]
+        fixtures[".jev-check/fixtures/CHECK/"]
+        styleDoc["coding_style document<br/>such as CODING_STYLE.md"]
+        repo["Git index and working tree"]
+        output[".jev-check/output/<br/>saved requests and answers"]
+        cachedir[".jev-check/output/cache/v2/"]
+    end
+
+    jev["Jev API<br/>JEV_CHECK_ENDPOINT<br/>default https://api.typesafe.ai/v1/systemone"]
+
+    bundle -- "templates" --> setup
+    setup -- "init, add copy checks,<br/>never overwrite" --> input
+    setup -- "init writes" --> cfg
+    offline -- "doctor" --> settings
+    offline -- "context, doctor read" --> cfg
+    offline -- "context: git ls-files" --> repo
+    offline --> scan
+    api --> settings
+    settings -- "reads, refuses it<br/>if Git tracks it" --> env
+    api -- "gate, eval read" --> cfg
+    api -- "reads" --> input
+    api -- "gate, eval read" --> styleDoc
+    api -- "gate: ls-files, diff --cached" --> repo
+    api -- "eval reads" --> fixtures
+    api --> scan
+    scan -- "gate, eval:<br/>clean requests" --> cache
+    cache -- "hit younger than 24 hours" --> cachedir
+    cache -- "miss: POST with Bearer key,<br/>no redirects, 120 s timeout" --> jev
+    scan -- "ask: clean request,<br/>no cache" --> jev
+    jev -- "every answer is saved" --> output
+    jev -- "gate, eval store answers" --> cachedir
+    judgeCmd -- "reads a saved answer" --> output
+    judgeCmd --> judgeLib
+    api --> judgeLib
+    judgeLib -- "ok or FAIL lines<br/>and the exit code" --> user
+```
+
+The pieces, from the request's point of view:
+
+1. `settings.go` reads `.jev-check/.env`. It refuses the file when Git tracks it, checks the endpoint (https, or http on loopback only), and picks the model: `--model`, then `JEV_CHECK_MODEL`, then `jev-latest`.
+2. `context.go` reads `.jev-check/project-context.json` and lists the file tree with `git ls-files`, minus `exclude`. This is the shared part of every gate and eval request.
+3. `ask.go` reads a check from `.jev-check/input/questions/<name>.json`, and its optional default state from `.jev-check/input/states/<name>.json`. It also holds `callJev`, the only function that sends a request.
+4. `secrets.go` scans the whole request. `callJev` and `cachedJev` scan again before they act, so no path to the API skips the scan.
+5. `gate.go` holds the cache. The key is the SHA-256 of the cache version, the endpoint, and the whole request. An entry is reused for less than 24 hours.
+6. `judge.go` compares each yes/no (`noul`) answer with its threshold and prints `ok` or `FAIL`. Choice and score answers print as `info` and never fail.
+
+Every command runs through the same dispatcher in `main.go`:
+
+```mermaid
+flowchart TD
+    start(["jev-check ARGS"]) --> noargs{"Any arguments?"}
+    noargs -- "no" --> usage2["Print usage to stderr<br/>exit 2"]
+    noargs -- "yes" --> help{"First argument is<br/>-h, --help, or help?"}
+    help -- "yes" --> usage0["Print usage to stdout<br/>exit 0"]
+    help -- "no" --> known{"Known command?"}
+    known -- "no" --> unknown["unknown command, usage to stderr<br/>exit 2"]
+    known -- "yes" --> cmd["Run the command"]
+    cmd --> secret{"Error is a<br/>secret finding?"}
+    secret -- "yes" --> sec1["Print SECRET lines to stdout<br/>exit 1"]
+    secret -- "no" --> err{"Other error?"}
+    err -- "yes" --> err2["jev-check CMD: message on stderr<br/>exit 2"]
+    err -- "no" --> code["Exit with the command's code"]
+```
+
+## Commands
 
 ```bash
 jev-check init [DIR]                             # create DIR/.jev-check/, or restore its missing files
@@ -516,11 +613,421 @@ jev-check ask draft.json --file PATH --dry-run   # print the request for a draft
 jev-check context .                              # the project state Jev sees
 jev-check secrets PATCH...                       # the local secret scan alone
 jev-check judge .jev-check/output/<file>.json 0.5 # judge a saved answer again, without the API
+jev-check gate [DIR]                             # run DIR's checks on its staged files
+jev-check eval <check> [DIR]                     # test a check's thresholds on its fixtures
 jev-check doctor [DIR]                           # the settings and setup problems, without the API
 jev-check <command> --help
 ```
 
-`ask` saves each request and response to `./.jev-check/output/<timestamp>-<check>-<random>.json` and prints its absolute path.
+| Command | Calls the API | Reads `.jev-check/.env` | Needs Git | Writes files |
+| --- | --- | --- | --- | --- |
+| `init` | no | no | yes | `.jev-check/` files that are missing |
+| `add` | no | no | no | `.jev-check/input/` files that are missing |
+| `list` | no | no | no | nothing |
+| `ask` | yes, not with `--dry-run` | yes | no | `.jev-check/output/` |
+| `context` | no | no | yes | nothing |
+| `secrets` | no | no | no | nothing |
+| `judge` | no | no | no | nothing |
+| `gate` | yes, on a cache miss | yes | yes | `.jev-check/output/` and its cache |
+| `eval` | yes, on a cache miss | yes | yes | `.jev-check/output/` and its cache |
+| `doctor` | no | yes | yes | a probe file it deletes at once |
+
+Every command prints its own help with `--help`, and exits 2 on arguments it cannot use.
+
+### init
+
+`jev-check init [DIR]` sets up `DIR/.jev-check/` (default: the current folder). It never replaces a file, so running it again restores only what is missing. It reads no settings and calls no API.
+
+1. Makes `DIR` absolute. `DIR` must be a folder inside a Git working tree (`git rev-parse --is-inside-work-tree`), or it exits 2.
+2. Creates `DIR/.jev-check/` with a plain `mkdir`. An existing folder is fine. A file or symlink named `.jev-check` is an error.
+3. Creates `project-context.json` with the default configuration (`public-release` at threshold 0.5, `exclude: [".jev-check/"]`). If the file exists, it prints `kept` and reads it instead. If the file cannot be created and this run made `.jev-check/`, it removes that folder again.
+4. Creates `.gitignore` with `.env` and `output/`, and `README.md` from the bundle. Each is `created` or `kept`.
+5. Copies checks into `input/`, the same way `add` does. When `input/questions/` does not exist yet, it copies every bundled check: these are the checks available. When the folder exists, it copies only the bundled checks that `checks` names, so a check you deleted stays deleted. The gate runs only the checks listed in `checks`.
+6. Prints five next steps: review the config and its `checks`, add the key, run `doctor`, stage work, run `gate`.
+
+Exit 0 on success, 2 on any error, including invalid JSON in an existing `project-context.json`.
+
+```mermaid
+flowchart TD
+    s(["jev-check init DIR"]) --> abs["Make DIR absolute"]
+    abs --> isdir{"DIR is a folder?"}
+    isdir -- "no" --> e1["exit 2: not a folder"]
+    isdir -- "yes" --> git{"git rev-parse<br/>--is-inside-work-tree<br/>prints true?"}
+    git -- "no" --> e2["exit 2: not in a git working tree"]
+    git -- "yes" --> mk["mkdir DIR/.jev-check"]
+    mk --> real{"A real folder,<br/>not a file or symlink?"}
+    real -- "no" --> e3["exit 2"]
+    real -- "yes" --> cfg{"Create project-context.json<br/>with O_EXCL"}
+    cfg -- "exists" --> kept["Print kept, read it"]
+    kept --> json{"Valid JSON?"}
+    json -- "no" --> e4["exit 2: invalid JSON"]
+    json -- "yes" --> ign
+    cfg -- "created" --> created["Print created,<br/>use the default config"]
+    created --> ign
+    cfg -- "other error" --> undo["Remove .jev-check/ if this run made it<br/>exit 2"]
+    ign["Create .gitignore: .env, output/<br/>created or kept"] --> readme["Create README.md from the bundle<br/>created or kept"]
+    readme --> qdir{"input/questions/<br/>exists already?"}
+    qdir -- "no" --> all["Take every bundled check"]
+    qdir -- "yes" --> named["Take the bundled checks<br/>that checks names"]
+    all --> copy["For each: copy questions and state<br/>into input/, created or kept"]
+    named --> copy
+    copy --> next["Print the next steps<br/>exit 0"]
+```
+
+### add
+
+`jev-check add [--dir DIR] <check>...` copies bundled checks into `DIR/.jev-check/input/` (default `DIR`: the current folder). `ask`, `gate`, and `eval` run only these copies, so you edit a check there. It does not need Git or settings.
+
+1. Reads `--dir DIR` and one or more check names. No names is exit 2.
+2. `DIR` must be a folder.
+3. Checks every name before it writes anything. A name must use only letters, digits, `-`, and `_`, and must be a bundled check. One bad name is exit 2 with nothing written.
+4. For each name, writes `input/questions/<name>.json`, and `input/states/<name>.json` when the bundle has a default state. It creates missing folders.
+5. A file that already exists is kept and printed as `kept`. To take a newer bundled version, delete the copy and run `add` again.
+
+Exit 0 on success, 2 on any error.
+
+```mermaid
+flowchart TD
+    s(["jev-check add --dir DIR NAME..."]) --> parse["Read --dir and names"]
+    parse --> any{"At least one name?"}
+    any -- "no" --> e1["exit 2: expected a check name"]
+    any -- "yes" --> isdir{"DIR is a folder?"}
+    isdir -- "no" --> e2["exit 2: not a folder"]
+    isdir -- "yes" --> valid{"Every name matches<br/>letters, digits, - and _<br/>and is bundled?"}
+    valid -- "no" --> e3["exit 2, nothing written"]
+    valid -- "yes" --> loop["For each name"]
+    loop --> q
+    q["Create input/questions/NAME.json<br/>exists: print kept"] --> st{"Bundle has<br/>input/states/NAME.json?"}
+    st -- "yes" --> w2["Create input/states/NAME.json<br/>exists: print kept"]
+    st -- "no" --> more
+    w2 --> more{"More names?"}
+    more -- "yes" --> loop
+    more -- "no" --> ok["exit 0"]
+```
+
+### list
+
+`jev-check list [DIR]` shows the checks available in the project, which of them the gate runs, then the bundled checks the project does not have. It reads `DIR/.jev-check/input/` and `project-context.json`, and calls no API.
+
+1. `DIR` (default: the current folder) must be a folder.
+2. Reads `DIR/.jev-check/input/questions/`. A missing folder means the project has no checks, not an error.
+3. Reads `project-context.json`. When it is missing or invalid, `list` still runs, but it cannot say which checks the gate runs.
+4. For each `.json` file, it checks the name, reads the questions and the optional default state, and requires a non-empty `questions` object. Files that do not end in `.json` are skipped.
+5. Prints each project check with a tag, then its title and description. The tag is `project`, then `gate <threshold>` when `checks` lists it or `not in checks` when it does not (left out without a readable config), then `has default state` or `needs --file`. For example: `example [project, not in checks, has default state]`.
+6. Prints each bundled check the project lacks as `<name> [bundled, not added: jev-check add <name>]`.
+
+Exit 0, or 2 when a check file has a bad name or invalid JSON.
+
+```mermaid
+flowchart TD
+    s(["jev-check list DIR"]) --> isdir{"DIR is a folder?"}
+    isdir -- "no" --> e1["exit 2"]
+    isdir -- "yes" --> read["Read DIR/.jev-check/input/questions/<br/>missing folder: no project checks"]
+    read --> cfg["Read project-context.json<br/>unreadable: no gate tags"]
+    cfg --> loop["For each .json file"]
+    loop --> name{"Name uses only<br/>letters, digits, - and _?"}
+    name -- "no" --> e2["exit 2"]
+    name -- "yes" --> parse{"Non-empty questions object?"}
+    parse -- "no" --> e3["exit 2: invalid check"]
+    parse -- "yes" --> gate{"Config read?"}
+    gate -- "no" --> tag0["Tag: project"]
+    gate -- "yes" --> listed{"checks lists NAME<br/>with a threshold?"}
+    listed -- "yes" --> tag1["Tag: project, gate THRESHOLD"]
+    listed -- "no" --> tag2["Tag: project, not in checks"]
+    tag0 --> state
+    tag1 --> state
+    tag2 --> state{"input/states/NAME.json exists?"}
+    state -- "yes" --> p1["Print NAME with tag,<br/>has default state"]
+    state -- "no" --> p2["Print NAME with tag,<br/>needs --file"]
+    p1 --> more{"More files?"}
+    p2 --> more
+    more -- "yes" --> loop
+    more -- "no" --> bundled["For each bundled check not in the project:<br/>print NAME bundled, not added"]
+    bundled --> ok["exit 0"]
+```
+
+### ask
+
+`jev-check ask <check> [state.json] [--file PATH]... [--threshold N] [--model ID] [--dry-run]` sends one check to Jev with any state you give it. It uses the current folder as the project, and does not need a Git repository.
+
+1. Reads the options. `--threshold` must be from 0 to 1, and `--model` must not be empty. It takes one or two positional arguments: the check and an optional state file.
+2. Loads the settings from `./.jev-check/.env`: key, endpoint, and model. Inside a Git repository, a tracked `.env` is exit 2. A bad endpoint is exit 2, even with `--dry-run`.
+3. Loads the check. A first argument ending in `.json` is read as a path. Anything else is a check name, read from `./.jev-check/input/questions/<name>.json`. A missing bundled check is an error that names the `jev-check add` command to run.
+4. Builds the state from the state file, else the check's default state. With neither, `--file` is required.
+5. Adds each `--file PATH` to the state as `files[PATH] = <content>`.
+6. Scans the whole request for secrets. A finding prints `SECRET` lines, sends and saves nothing, and exits 1.
+7. With `--dry-run`, prints the request as JSON and exits 0. No key is needed.
+8. Otherwise it posts the request with the key as a Bearer token. The client has a 120 second timeout and follows no redirects. A missing key, a non-2xx status, or an answer that does not match the questions is exit 2.
+9. Saves the request and the raw response to `./.jev-check/output/<timestamp>-<check>-<random>.json`.
+10. Prints one line per yes/no answer, then `info` lines for choice and score answers, then `model: <model>  saved: <path>`.
+
+Exit 1 when `--threshold` is set and any yes/no answer is below it. Otherwise exit 0, even for low answers. `ask` never uses the cache.
+
+```mermaid
+flowchart TD
+    s(["jev-check ask CHECK STATE --file PATH"]) --> opts{"Options valid?<br/>threshold 0 to 1,<br/>1 or 2 positionals"}
+    opts -- "no" --> e1["exit 2"]
+    opts -- "yes" --> set["Load ./.jev-check/.env"]
+    set --> tracked{"In a Git repo and<br/>.env is tracked?"}
+    tracked -- "yes" --> e2["exit 2"]
+    tracked -- "no" --> ep{"Endpoint is https,<br/>or http on loopback?"}
+    ep -- "no" --> e3["exit 2"]
+    ep -- "yes" --> load{"First argument<br/>ends in .json?"}
+    load -- "yes" --> path["Read that file"]
+    load -- "no" --> named["Read input/questions/NAME.json<br/>and input/states/NAME.json"]
+    path --> qs
+    named --> qs{"File exists with a<br/>non-empty questions object?"}
+    qs -- "no" --> e4["exit 2, with a jev-check add hint<br/>for a bundled name"]
+    qs -- "yes" --> state{"Where does the state come from?"}
+    state -- "state.json given" --> st1["Read state.json"]
+    state -- "default state" --> st2["Use the default state"]
+    state -- "only --file" --> st3["Start empty"]
+    state -- "nothing" --> e5["exit 2: pass --file PATH"]
+    st1 --> files
+    st2 --> files
+    st3 --> files["Add each --file as files PATH"]
+    files --> scan{"Secret scan<br/>on the whole request"}
+    scan -- "finding" --> sec["Print SECRET lines<br/>nothing sent or saved, exit 1"]
+    scan -- "clean" --> dry{"--dry-run?"}
+    dry -- "yes" --> print["Print request JSON<br/>exit 0"]
+    dry -- "no" --> key{"Key set?"}
+    key -- "no" --> e6["exit 2: set TYPESAFE_API_KEY"]
+    key -- "yes" --> post["POST to the endpoint<br/>Bearer key, 120 s, no redirects"]
+    post --> resp{"2xx and every question<br/>has a valid answer?"}
+    resp -- "no" --> e7["exit 2: API call failed<br/>or unexpected response"]
+    resp -- "yes" --> save["Save request and response<br/>to .jev-check/output/"]
+    save --> verdict["Print answers, model, saved path"]
+    verdict --> below{"--threshold set and<br/>a yes/no answer below it?"}
+    below -- "yes" --> f1["exit 1"]
+    below -- "no" --> ok["exit 0"]
+```
+
+### context
+
+`jev-check context [DIR]` prints the shared state that `gate` and `eval` send with every patch. It reads no settings, validates no checks, and calls no API.
+
+1. Reads `DIR/.jev-check/project-context.json` (default `DIR`: the current folder). If only an old root `project-context.json` exists, it exits 2 with the move steps.
+2. Reads each `coding_style` document the checks name. The path must stay inside the project with no `..`, absolute path, or symlink. The file must be regular UTF-8 text, not empty, without NUL bytes, and at most 65,536 bytes.
+3. Scans those documents for secrets. A finding is exit 1.
+4. Lists the tree with `git ls-files -z --cached --others --exclude-standard -- .`, minus every `exclude` pathspec. Tracked and untracked files both appear. Files that `.gitignore` ignores do not.
+5. Prints JSON with `project` (`purpose`, `rules`, `folders`), `tree`, and, when a check has a `coding_style`, `coding_styles` mapping each path to its contents once.
+
+It scans only the `coding_style` documents. The project fields and the tree are printed without a scan; `gate` scans them before it sends anything. Exit 0, 1 for a secret in a document, 2 for any other error.
+
+```mermaid
+flowchart TD
+    s(["jev-check context DIR"]) --> cfg{"DIR/.jev-check/<br/>project-context.json?"}
+    cfg -- "missing, old root file exists" --> e1["exit 2 with move steps"]
+    cfg -- "missing or invalid" --> e2["exit 2"]
+    cfg -- "read" --> styles{"Every coding_style path<br/>and file valid?"}
+    styles -- "no" --> e3["exit 2"]
+    styles -- "yes" --> scan{"Secret scan<br/>on the documents"}
+    scan -- "finding" --> sec["Print SECRET lines<br/>exit 1"]
+    scan -- "clean" --> tree["git ls-files --cached --others<br/>--exclude-standard, minus exclude"]
+    tree --> gerr{"git failed?"}
+    gerr -- "yes" --> e4["exit 2"]
+    gerr -- "no" --> out["Print JSON: project, tree,<br/>coding_styles when any"]
+    out --> ok["exit 0"]
+```
+
+### secrets
+
+`jev-check secrets PATCH...` runs the local secret scan alone on one or more files. It needs no project, no Git, and no settings.
+
+1. Requires at least one path.
+2. Reads each file. A read error stops the command with exit 2; lines already printed stay printed.
+3. Checks every line against the secret patterns: private key headers, cloud and provider token formats, JWTs, credentials in URLs, Bearer literals, and quoted or `.env`-style assignments to names such as `password` or `token`. It also checks each line with one leading `+`, `-`, or space removed, so removed and context lines of a patch count.
+4. Prints one line per kind of secret found: `SECRET  <file> line N,M looks like <kind>`. It never prints the value. A file name that itself looks like a secret, or holds a control character, prints as `patch`.
+
+Exit 0 when every file is clean, 1 when anything looks like a secret, 2 on an error. This is the line scan only. `ask`, `gate`, and `eval` also scan every JSON key and value of a request, and each key and value as a pair.
+
+```mermaid
+flowchart TD
+    s(["jev-check secrets PATCH..."]) --> any{"At least one path?"}
+    any -- "no" --> e1["exit 2"]
+    any -- "yes" --> loop["For each path"]
+    loop --> read{"Readable?"}
+    read -- "no" --> e2["exit 2"]
+    read -- "yes" --> lines["Check each line, and the line<br/>without one leading +, - or space,<br/>against every pattern"]
+    lines --> report["Print one SECRET line per kind,<br/>with line numbers, never the value"]
+    report --> more{"More paths?"}
+    more -- "yes" --> loop
+    more -- "no" --> found{"Anything found?"}
+    found -- "yes" --> f1["exit 1"]
+    found -- "no" --> ok["exit 0"]
+```
+
+### judge
+
+`jev-check judge OUTPUT.json THRESHOLD [QUESTION=THRESHOLD]...` judges a saved answer again with new thresholds. It reads one file that `ask` or `gate` saved in `.jev-check/output/`, and calls no API.
+
+1. Requires the file and a threshold.
+2. Reads the saved `request` and `response`. Invalid JSON is exit 2.
+3. Checks the answers against the saved questions: every question has an answer of its type, there are no extra answers, and each yes/no answer is a number from 0 to 1. A bad answer is exit 2.
+4. Reads `THRESHOLD`, from 0 to 1.
+5. Reads each `QUESTION=THRESHOLD`. The question must be in the answers, and the value must be from 0 to 1. It overrides the default threshold for that question.
+6. Prints `ok` or `FAIL`, the probability, and the question for each yes/no answer, then `info` lines for choice and score answers.
+
+Exit 1 when any yes/no answer is below its threshold, 0 when none is, 2 on an error.
+
+```mermaid
+flowchart TD
+    s(["jev-check judge OUTPUT.json T Q=T"]) --> args{"File and threshold given?"}
+    args -- "no" --> e1["exit 2"]
+    args -- "yes" --> read{"Valid JSON with<br/>request and response?"}
+    read -- "no" --> e2["exit 2"]
+    read -- "yes" --> valid{"Answers match the<br/>saved questions?"}
+    valid -- "no" --> e3["exit 2"]
+    valid -- "yes" --> t{"THRESHOLD from 0 to 1?"}
+    t -- "no" --> e4["exit 2"]
+    t -- "yes" --> pq{"Each Q=T names an answer<br/>and T is from 0 to 1?"}
+    pq -- "no" --> e5["exit 2"]
+    pq -- "yes" --> print["Print ok or FAIL per yes/no answer,<br/>info for choice and score"]
+    print --> below{"Any yes/no answer<br/>below its threshold?"}
+    below -- "yes" --> f1["exit 1"]
+    below -- "no" --> ok["exit 0"]
+```
+
+### gate
+
+`jev-check gate [DIR] [--no-cache] [--model ID]` sends one patch per staged file to every check in `DIR/.jev-check/project-context.json`, and prints `gate: PASS`, `gate: FAIL`, or `gate: ERROR`. See [Gate](#gate) for the configuration and [Cache](#cache) for the cache rules.
+
+1. Loads the settings from `DIR/.jev-check/.env`. A tracked `.env` or a bad endpoint is exit 2. The key is needed only when a request misses the cache.
+2. Reads `project-context.json` and checks every entry of `checks` before any request: a valid name, a threshold from 0 to 1, a question file in `.jev-check/input/questions/`, and `per_question` entries that name real questions with values from 0 to 1. Any problem is exit 2.
+3. Reads the `coding_style` documents and lists the tree, as `context` does.
+4. Scans the shared content: the model, the project fields, the tree, and the `coding_style` documents. A finding prints it with `gate: FAIL` and exits 1 before any request.
+5. Scans each check's questions. A finding prints `== <check> questions` with the report and skips that check. The other checks still run.
+6. Lists the staged files with `git diff --cached --relative --name-only`, minus `exclude`. With no staged file and no finding so far, it prints `nothing staged` and exits 0.
+7. Gets each file's staged patch with `git diff --cached --relative -- <file>`. It scans every line of it, including removed and context lines. A finding prints `SECRET` lines and skips that file. The other files still run.
+8. For each check, lists the staged files again minus `exclude` and the check's `skip`. For each file with a clean patch, it builds a request: model, questions, and the shared state plus `files: {"<file>.patch": <patch>}`, plus the check's own `coding_style`.
+9. Looks in the cache, unless `--no-cache`. A hit needs the same key, format version 2, an age under 24 hours, and valid answers. On a miss it calls the API as `ask` does, saves the exchange in `.jev-check/output/`, and writes the cache entry through a temporary file and a rename. A failed cache write only warns on stderr.
+10. Prints `== <check> <file>`, with `(cached)` for a hit, then each answer against the check's threshold and `per_question`. An API error prints the header, the message on stderr, and moves on to the next file.
+11. Prints the worst result: `gate: PASS` (0), `gate: FAIL` (1, a failed answer or a secret), or `gate: ERROR` (2, an API error).
+
+A file name that looks like a secret, or holds a control character, prints as `staged file N`.
+
+```mermaid
+flowchart TD
+    s(["jev-check gate DIR"]) --> set{"Settings OK?<br/>.env not tracked,<br/>endpoint valid"}
+    set -- "no" --> e1["exit 2"]
+    set -- "yes" --> cfg{"project-context.json read<br/>and every check valid?"}
+    cfg -- "no" --> e2["exit 2"]
+    cfg -- "yes" --> shared["Read coding_style documents<br/>git ls-files for the tree"]
+    shared --> scan1{"Secret in model, project fields,<br/>tree, or documents?"}
+    scan1 -- "yes" --> f0["Print findings, gate: FAIL<br/>exit 1, nothing sent"]
+    scan1 -- "no" --> scan2["Scan each check's questions<br/>finding: skip that check, status 1"]
+    scan2 --> staged["git diff --cached --name-only<br/>minus exclude"]
+    staged --> none{"No staged file<br/>and status 0?"}
+    none -- "yes" --> ns["nothing staged<br/>exit 0"]
+    none -- "no" --> patches["For each file:<br/>git diff --cached -- FILE"]
+    patches --> scan3{"Secret in the patch?"}
+    scan3 -- "yes" --> skipf["Print SECRET lines,<br/>skip the file, status 1"]
+    scan3 -- "no" --> keep["Keep the patch"]
+    skipf --> morefiles{"More staged files?"}
+    keep --> morefiles
+    morefiles -- "yes" --> patches
+    morefiles -- "no" --> checks["For each check not skipped,<br/>each staged file not in its skip list"]
+    checks --> req["Request: model, questions,<br/>project, tree, FILE.patch,<br/>the check's coding_style"]
+    req --> cache{"--no-cache not set and a<br/>fresh, valid cache entry?"}
+    cache -- "yes" --> hit["Use cached answers"]
+    cache -- "no" --> callApi["Call the API, save to output/,<br/>write the cache entry"]
+    callApi --> apiok{"Call succeeded?"}
+    apiok -- "no" --> apierr["Print the header, error on stderr<br/>status 2"]
+    apiok -- "yes" --> verdict
+    hit --> verdict["Print == CHECK FILE,<br/>ok or FAIL per answer"]
+    verdict --> fail{"Any answer below<br/>its threshold?"}
+    fail -- "yes" --> st1["status at least 1"]
+    fail -- "no" --> next
+    st1 --> next{"More checks or files?"}
+    apierr --> next
+    next -- "yes" --> checks
+    next -- "no" --> result["gate: PASS, FAIL, or ERROR<br/>exit 0, 1, or 2"]
+```
+
+### eval
+
+`jev-check eval <check> [DIR] [--no-cache] [--model ID]` tests a check's thresholds on its fixtures in `DIR/.jev-check/fixtures/<check>/`. See [Fixtures and eval](#fixtures-and-eval) for the folder layout.
+
+1. Loads the settings and `project-context.json`, as `gate` does. The check must be in `checks`, and its entry must be valid.
+2. Collects the check's yes/no (`noul`) questions. A check without one is exit 2, because nothing has a threshold.
+3. Reads the `coding_style` document, if any, and lists the tree.
+4. Finds the fixtures: `pass/*.patch`, and `fail/<question>/*.patch` for each yes/no question. It exits 2 when a `.patch` sits directly in `fail/`, when a fail folder names no yes/no question, when a fixture is not a regular file, or when `pass/` or any `fail/<question>/` is empty. It names every missing set at once.
+5. Reads and parses every fixture before any request. Each must be one single-file text patch from Git, with LF line endings and hunks that match their `@@` counts. It takes the path from the headers: the new path, the old path of a deletion, or the `rename to` path. It refuses unsafe paths. Any problem is exit 2.
+6. Scans every request, or the `coding_style` document once. Any finding prints `eval: BLOCKED` and exits 1 with nothing sent.
+7. Sends each fixture through the same cache as `gate`. Any API error stops the command with exit 2.
+8. Counts misses. A pass fixture misses once for each yes/no question below its threshold. A fail fixture misses when its own question is at or above its threshold. Each miss prints a `MISS` line.
+9. Prints the fixture counts per question, then the lowest pass score, the highest fail score, and the threshold per question, then `eval: N misses in M fixtures`.
+
+Exit 0 with no misses, 1 with a miss or a secret, 2 on a usage, fixture, or API error.
+
+```mermaid
+flowchart TD
+    s(["jev-check eval CHECK DIR"]) --> set{"Settings and<br/>project-context.json OK?"}
+    set -- "no" --> e1["exit 2"]
+    set -- "yes" --> inCfg{"CHECK is in checks<br/>and valid?"}
+    inCfg -- "no" --> e2["exit 2"]
+    inCfg -- "yes" --> noul{"Has at least one<br/>yes/no question?"}
+    noul -- "no" --> e3["exit 2: no threshold to evaluate"]
+    noul -- "yes" --> shared["Read coding_style, list the tree"]
+    shared --> find{"fixtures/CHECK/ has pass/<br/>and fail/Q/ for every yes/no Q?"}
+    find -- "no" --> e4["exit 2: names every missing set"]
+    find -- "yes" --> parse{"Every fixture is one valid<br/>single-file text patch?"}
+    parse -- "no" --> e5["exit 2"]
+    parse -- "yes" --> build["Build one request per fixture<br/>under the path in its headers"]
+    build --> scan{"Secret in the document<br/>or any request?"}
+    scan -- "yes" --> blocked["eval: BLOCKED, nothing sent<br/>exit 1"]
+    scan -- "no" --> loop["For each fixture: cache or API"]
+    loop --> apiok{"Call succeeded?"}
+    apiok -- "no" --> e6["exit 2"]
+    apiok -- "yes" --> kind{"Pass or fail fixture?"}
+    kind -- "pass" --> pm["MISS for each yes/no<br/>answer below its threshold"]
+    kind -- "fail/Q" --> fm["MISS if Q's answer is<br/>at or above its threshold"]
+    pm --> more{"More fixtures?"}
+    fm --> more
+    more -- "yes" --> loop
+    more -- "no" --> tables["Print counts, lowest pass,<br/>highest fail, thresholds"]
+    tables --> misses{"Any miss?"}
+    misses -- "yes" --> f1["eval: N misses, exit 1"]
+    misses -- "no" --> ok["eval: 0 misses, exit 0"]
+```
+
+### doctor
+
+`jev-check doctor [DIR]` prints the settings jev-check would use for `DIR` and every setup problem it can find offline. It never calls the API and never prints the key. It prints one `ok` or `FAIL` line per item:
+
+1. `settings file`: the path of `DIR/.jev-check/.env`, with `missing` when it does not exist. It fails when Git tracks the file or Git cannot tell.
+2. `endpoint` and `model`: each value, with its source, either the settings file or `default`. The endpoint fails when it is not https, or http on loopback. When the settings file failed, these lines and the key line fail as `not read`.
+3. `API key`: `set`, or `FAIL` with where to put it. An extra `info` line says when `TYPESAFE_API_KEY` is in the environment, which jev-check ignores.
+4. `project`: `project-context.json` reads, every check in it is valid, and every `coding_style` document is valid.
+5. `old layout`: shown only when both `DIR/project-context.json` and `DIR/.jev-check/project-context.json` exist, as a `FAIL`.
+6. `git and output`: `DIR` is in a Git working tree, and it can create and delete a probe file in `.jev-check/output/`, or in `.jev-check/` when `output/` does not exist yet.
+
+It ends with `doctor: ok` or `doctor: FAIL`, and the note that the key and the service were not tested. Exit 0 when every line is `ok`, 2 when any line fails. When the model looks like a secret, it prints the finding and exits 1 at once.
+
+```mermaid
+flowchart TD
+    s(["jev-check doctor DIR"]) --> env{"Read .jev-check/.env<br/>not tracked by Git?"}
+    env -- "no" --> fenv["FAIL settings file<br/>FAIL endpoint, model, API key: not read"]
+    env -- "yes" --> okenv["ok settings file"]
+    okenv --> model{"Model looks<br/>like a secret?"}
+    model -- "yes" --> sec["Print SECRET lines<br/>exit 1"]
+    model -- "no" --> lines["endpoint ok or FAIL, model ok,<br/>API key set or FAIL,<br/>info if set in the environment"]
+    fenv --> proj
+    lines --> proj{"project-context.json, checks,<br/>and coding_style valid?"}
+    proj -- "yes" --> okp["ok project"]
+    proj -- "no" --> fp["FAIL project"]
+    okp --> old
+    fp --> old{"Both root and .jev-check/<br/>project-context.json exist?"}
+    old -- "yes" --> fold["FAIL old layout"]
+    old -- "no" --> gitout
+    fold --> gitout{"In a Git work tree and<br/>output folder writable?"}
+    gitout -- "yes" --> okg["ok git and output"]
+    gitout -- "no" --> fg["FAIL git and output"]
+    okg --> end1{"Any FAIL line?"}
+    fg --> end1
+    end1 -- "no" --> ok["doctor: ok<br/>exit 0"]
+    end1 -- "yes" --> f2["doctor: FAIL<br/>exit 2"]
+```
 
 ## Layout
 
