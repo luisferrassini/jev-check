@@ -38,12 +38,12 @@ jev-check init
 
 | File | What it is |
 | --- | --- |
-| `.jev-check/project-context.json` | The configuration, with the `public-release` check at threshold 0.5. |
-| `.jev-check/input/questions/public-release.json` | The questions that check sends. jev-check runs only the checks in this folder. |
+| `.jev-check/project-context.json` | The configuration. Its `checks` list is what the gate runs: at first only `public-release`, at threshold 0.5. |
+| `.jev-check/input/questions/*.json` | Every bundled check, one file each: the checks available. jev-check reads checks only from this folder. Edit, delete, or add files here. |
 | `.jev-check/README.md` | A short guide to the folder, for whoever maintains it. |
 | `.jev-check/.gitignore` | Keeps your key and the saved answers out of Git. |
 
-Running `init` again never replaces a file. It creates only the missing ones. Every jev-check file in a project lives in `.jev-check/`, so deleting that folder removes jev-check.
+To turn a check on, add its entry to `checks`. Running `init` again never replaces a file. It creates only the missing ones, and restores only the checks listed in `checks`, so a check you deleted stays deleted. Every jev-check file in a project lives in `.jev-check/`, so deleting that folder removes jev-check.
 
 ### 3. Try it without an API key
 
@@ -51,11 +51,10 @@ Still in `"$demo"`, with no key set:
 
 ```bash
 jev-check list
-jev-check add example
 jev-check ask example --dry-run
 ```
 
-`list` shows the checks in `.jev-check/input/questions/`, then the bundled checks you have not added: `coding-style`, `example`, `help-text-honesty`, `maintainability`, `no-leftovers`, `secret-handling`, and `test-quality`. `add example` copies the `example` check and its sample state into `.jev-check/input/`. `ask example --dry-run` prints the request it would send, as JSON with `model`, `questions`, and `state`, and exits 0. Nothing is sent, so this is a preview, not a judgment of the sample script.
+`list` shows the checks in `.jev-check/input/questions/`: `coding-style`, `example`, `help-text-honesty`, `maintainability`, `no-leftovers`, `public-release`, `secret-handling`, and `test-quality`. `example` has a sample state in `.jev-check/input/states/`, so it needs no `--file`. `ask example --dry-run` prints the request it would send, as JSON with `model`, `questions`, and `state`, and exits 0. Nothing is sent, so this is a preview, not a judgment of the sample script.
 
 ### 4. Describe the project
 
@@ -382,7 +381,7 @@ eval: 0 misses in 21 fixtures
 
 In this run with `jev-latest` on 2026-09-26, every clean fixture scored 0.83 or more and every problem scored 0.22 or less, so a threshold of 0.5 separates them with a wide margin on both sides. Scores vary between runs. A question that could not separate its fixtures was removed.
 
-An opt-in check is not in a project until you add it. Run `jev-check add <check>`, then add its entry, as each check below shows, to `checks`. Running `jev-check init` after you edit `checks` also copies every bundled check it names.
+`jev-check init` copies every bundled check into `.jev-check/input/questions/`, but the gate runs only the checks in `checks`. An opt-in check runs once you add its entry, as each check below shows, to `checks`. If you deleted its file, `jev-check add <check>` copies it again.
 
 `coding-style` is opt-in. It judges added or changed code against two rules in a project document: `clear_names` and `actionable_errors`. See [Coding style](#coding-style).
 
@@ -424,7 +423,7 @@ It finds credentials by name and use, not by value, so it does not replace the [
 
 It fails only when the patch itself shows the mismatch, such as a whole argument parser with no such flag. When the parser or the code is not visible, the file passes, and so do documentation and files with no help text. A pass does not mean the help is complete. To enable it, add `{ "check": "help-text-honesty", "threshold": 0.47 }` to `checks`. The scores behind the threshold are in [`.jev-check-example/fixtures/help-text-honesty/CALIBRATION.md`](.jev-check-example/fixtures/help-text-honesty/CALIBRATION.md). To evaluate it, use the disposable project from [Evaluating an opt-in check](#evaluating-an-opt-in-check) with `.jev-check-example/fixtures/help-text-honesty`, no `CODING_STYLE.md`, and `{"check":"help-text-honesty","threshold":0.47}`.
 
-`example` is a first check to try. `jev-check add example` also copies its default state, `.jev-check/input/states/example.json`, which holds a sample script, so it needs no `--file`.
+`example` is a first check to try. Its default state, `.jev-check/input/states/example.json`, holds a sample script, so it needs no `--file`.
 
 ## Coding style
 
@@ -511,7 +510,7 @@ New checks are welcome on the same terms: a question file, fixtures on both side
 ```bash
 jev-check init [DIR]                             # create DIR/.jev-check/, or restore its missing files
 jev-check add [--dir DIR] <check>...             # copy bundled checks into DIR/.jev-check/input/
-jev-check list [DIR]                             # the project's checks, then the bundled ones not added
+jev-check list [DIR]                             # the project's checks and which ones the gate runs
 jev-check ask <check> --file PATH --threshold N  # ask one check about any files
 jev-check ask draft.json --file PATH --dry-run   # print the request for a draft check
 jev-check context .                              # the project state Jev sees

@@ -63,9 +63,11 @@ type answer struct {
 }
 
 const listUsage = `Usage: jev-check list [DIR]   (default: .)
-Lists the checks in DIR/.jev-check/input/questions/, which ask, gate, and eval
-run, then the bundled checks DIR does not have yet. jev-check add <name> copies
-a bundled check into DIR/.jev-check/input/.
+Lists the checks in DIR/.jev-check/input/questions/, the checks available to
+ask, gate, and eval, then the bundled checks DIR does not have. Each check in
+the folder shows "gate <threshold>" when "checks" in project-context.json
+lists it, else "not in checks". jev-check add <name> copies a bundled check
+into DIR/.jev-check/input/.
 `
 
 func listCmd(args []string, stdout, _ io.Writer) (int, error) {
@@ -76,6 +78,7 @@ func listCmd(args []string, stdout, _ io.Writer) (int, error) {
 	if len(args) > 1 {
 		return 0, errors.New("expected at most one DIR")
 	}
+	var p project // the config, declared before the local project shadows the type
 	project := cmp.Or(append(args, ".")...)
 	if info, err := os.Stat(project); err != nil || !info.IsDir() {
 		return 0, fmt.Errorf("%s is not a folder", project)
@@ -84,6 +87,8 @@ func listCmd(args []string, stdout, _ io.Writer) (int, error) {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return 0, err
 	}
+	// Without a readable config, list still shows the checks, just not which ones the gate runs.
+	hasConfig := readJSON(configPath(project), &p) == nil
 	var have []string
 	for _, e := range entries {
 		name, ok := strings.CutSuffix(e.Name(), ".json")
@@ -100,11 +105,19 @@ func listCmd(args []string, stdout, _ io.Writer) (int, error) {
 		if _, err := parseQuestions(c.path, c.data); err != nil {
 			return 0, err
 		}
-		state := "needs --file"
-		if c.state != nil {
-			state = "has default state"
+		tag := "project"
+		if hasConfig {
+			tag += ", not in checks"
+			if i := slices.IndexFunc(p.Checks, func(g gateCheck) bool { return g.Check == name }); i >= 0 && p.Checks[i].Threshold != nil {
+				tag = fmt.Sprintf("project, gate %g", *p.Checks[i].Threshold)
+			}
 		}
-		printCheck(stdout, name, "project, "+state, c.data)
+		if c.state != nil {
+			tag += ", has default state"
+		} else {
+			tag += ", needs --file"
+		}
+		printCheck(stdout, name, tag, c.data)
 		have = append(have, name)
 	}
 	for _, name := range bundledNames() {

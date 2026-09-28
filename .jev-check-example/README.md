@@ -14,7 +14,7 @@ This folder holds everything [jev-check](https://github.com/luisferrassini/jev-c
 | `output/` | Saved requests and answers, and the gate cache in `output/cache/`. | no |
 | `.gitignore` | Keeps `.env` and `output/` out of Git. | yes |
 
-jev-check runs only the checks in `input/questions/`. The binary carries copies of the bundled checks, but it uses them only as templates for `jev-check add` and `jev-check init`.
+`input/questions/` holds the checks available. `jev-check init` put every bundled check there; keep, edit, or delete them, and add your own. The gate runs only the checks listed in `checks` in `project-context.json`. jev-check never runs a check that is not in `input/questions/`: the binary uses its bundled copies only as templates for `jev-check add` and `jev-check init`.
 
 ## Common tasks
 
@@ -22,8 +22,10 @@ Run these from the project root.
 
 | Task | Command |
 | --- | --- |
-| See the checks here and the bundled ones not added yet | `jev-check list` |
-| Add a bundled check | `jev-check add <check>`, then add `{ "check": "<check>", "threshold": 0.5 }` to `checks` in `project-context.json` |
+| See the checks here and which ones the gate runs | `jev-check list` |
+| Turn a check on | Add `{ "check": "<check>", "threshold": 0.5 }` to `checks` in `project-context.json`. The main README lists a calibrated threshold for each bundled check. |
+| Turn a check off | Remove its entry from `checks`. Delete its files too if you do not want it listed. |
+| Get back a deleted bundled check | `jev-check add <check>` |
 | Change a check | Edit `input/questions/<check>.json`. The next gate uses it and skips the cache for it. |
 | Write your own check | Create `input/questions/<name>.json` with a `questions` object, and add it to `checks`. |
 | Take a newer bundled version of a check | Delete `input/questions/<check>.json` and `input/states/<check>.json`, then run `jev-check add <check>`. |

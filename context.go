@@ -126,9 +126,12 @@ Sets up DIR/.jev-check/, creating each of these files that is missing:
   .gitignore             keeps .env and output/ out of Git
   README.md              what each file in .jev-check/ is for
   input/questions/, input/states/
-                         a copy of each bundled check the config names
-DIR must be in a git working tree. A file that already exists is kept, never
-replaced, so running init again restores only what is missing.
+                         the checks available: every bundled check when
+                         input/questions/ is new, else the ones in "checks"
+DIR must be in a git working tree. The gate runs only the checks listed in
+"checks" in project-context.json, so add an entry there to turn one on.
+A file that already exists is kept, never replaced, so running init again
+restores only what is missing and does not bring back a deleted check.
 `
 
 // initConfig is the starting project-context.json. Its defaults are this repository's, not a policy for every project.
@@ -192,18 +195,24 @@ func initCmd(args []string, stdout, _ io.Writer) (int, error) {
 	if err := installFile(filepath.Join(dir, jevDir, "README.md"), string(readme), stdout); err != nil {
 		return 0, err
 	}
-	var names []string
-	for _, c := range p.Checks {
-		if isBundled(c.Check) && !slices.Contains(names, c.Check) {
-			names = append(names, c.Check)
+	// A new input/questions/ gets every bundled check, the ones available to list in "checks".
+	// Later runs restore only the listed ones, so a check the user deleted stays deleted.
+	names := bundledNames()
+	if _, err := os.Stat(filepath.Join(dir, jevDir, "input", "questions")); err == nil {
+		names = nil
+		for _, c := range p.Checks {
+			if isBundled(c.Check) && !slices.Contains(names, c.Check) {
+				names = append(names, c.Check)
+			}
 		}
 	}
 	if err := addChecks(dir, names, stdout); err != nil {
 		return 0, err
 	}
 	fmt.Fprintf(stdout, `Next:
-  1. Review %s: purpose, rules, exclude, and each check with its threshold.
-     The checks it runs are the files in %s; edit them there.
+  1. Review %s: purpose, rules, exclude, and "checks".
+     The gate runs only the checks listed in "checks". %s
+     holds every check available: edit, delete, or add files there.
   2. Put TYPESAFE_API_KEY=<key> in %s. No other place is read.
      %s keeps it and output/ out of Git.
   3. Check the setup: jev-check doctor %s

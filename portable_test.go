@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -190,20 +192,27 @@ func TestInit(t *testing.T) {
 		t.Error("init, context, or an empty gate created output/")
 	}
 
-	// init copies the README and each bundled check the config names, never another one.
+	// init copies the README and every bundled check, with its default state, as the checks available.
 	checks := filepath.Join(sub, ".jev-check", "input", "questions")
 	want, _ := os.ReadFile(filepath.Join(sourceDir, bundleDir, "input/questions/public-release.json"))
 	if got, _ := os.ReadFile(filepath.Join(checks, "public-release.json")); string(got) != string(want) {
 		t.Error("init did not copy public-release")
 	}
-	if entries, _ := os.ReadDir(checks); len(entries) != 1 {
-		t.Errorf("init copied %v", entries)
+	if entries, _ := os.ReadDir(checks); len(entries) != len(bundledNames()) {
+		t.Errorf("init copied %v, want every bundled check %v", entries, bundledNames())
+	}
+	if !fileExists(filepath.Join(sub, ".jev-check", "input", "states", "example.json")) {
+		t.Error("init did not copy the example state")
+	}
+	if list := wantCode(t, 0, "list", sub); !strings.Contains(list, "public-release [project, gate 0.5, needs --file]") ||
+		!strings.Contains(list, "no-leftovers [project, not in checks, needs --file]") {
+		t.Errorf("list after init does not show which checks the gate runs:\n%s", list)
 	}
 	if !fileExists(filepath.Join(sub, ".jev-check", "README.md")) {
 		t.Error("init wrote no README.md")
 	}
 
-	// A second init keeps every file and restores only the missing ones, including checks the config names later.
+	// A second init keeps every file and restores only the missing ones, but a deleted check only when the config names it.
 	before, _ := os.ReadFile(config)
 	writeFile(t, ignore, "mine\n")
 	os.Remove(filepath.Join(sub, ".jev-check", "README.md"))
@@ -221,10 +230,15 @@ func TestInit(t *testing.T) {
 	if after, _ := os.ReadFile(filepath.Join(checks, "public-release.json")); string(after) != onlyQuestion {
 		t.Error("second init replaced an edited check")
 	}
+	os.Remove(filepath.Join(checks, "no-leftovers.json"))
+	wantCode(t, 0, "init", sub)
+	if fileExists(filepath.Join(checks, "no-leftovers.json")) {
+		t.Error("init brought back a deleted check the config does not name")
+	}
 	writeFile(t, config, `{"checks":[{"check":"no-leftovers","threshold":0.5},{"check":"mine","threshold":0.5}]}`)
 	wantCode(t, 0, "init", sub)
 	if !fileExists(filepath.Join(checks, "no-leftovers.json")) || fileExists(filepath.Join(checks, "mine.json")) {
-		t.Error("init did not add exactly the bundled checks the config names")
+		t.Error("init did not restore exactly the bundled checks the config names")
 	}
 	writeFile(t, config, "{")
 	wantCode(t, 2, "init", sub)
@@ -236,8 +250,16 @@ func TestInit(t *testing.T) {
 	wantCode(t, 0, "init", fresh)
 	writeSettings(t, fresh, fakeSettings)
 	writeFile(t, filepath.Join(fresh, ".jev-check", "output", "a.json"), "{}")
-	if out, _ := exec.Command("git", "-C", fresh, "status", "--porcelain", "-uall").Output(); string(out) != "?? .jev-check/.gitignore\n?? .jev-check/README.md\n?? .jev-check/input/questions/public-release.json\n?? .jev-check/project-context.json\n" {
-		t.Errorf("git status after init:\n%s", out)
+	status, _ := exec.Command("git", "-C", fresh, "status", "--porcelain", "-uall").Output()
+	wantStatus := "?? .jev-check/.gitignore\n?? .jev-check/README.md\n"
+	for _, kind := range []string{"questions", "states"} {
+		files, _ := fs.Glob(bundled, bundleDir+"/input/"+kind+"/*.json")
+		for _, f := range files {
+			wantStatus += "?? .jev-check/input/" + kind + "/" + path.Base(f) + "\n"
+		}
+	}
+	if wantStatus += "?? .jev-check/project-context.json\n"; string(status) != wantStatus {
+		t.Errorf("git status after init:\n%s\nwant:\n%s", status, wantStatus)
 	}
 	notDir := t.TempDir()
 	gitInit(t, notDir)
