@@ -89,7 +89,13 @@ func TestTrackedSettings(t *testing.T) {
 	wantErr(t, "tracked", "ask", "--dry-run", "example")
 	wantErr(t, "tracked", "ask", "example")
 
-	// A repository Git refuses is not treated as no repository.
+	// A repository Git refuses is not treated as no repository. An empty Git
+	// config keeps a machine's safe.directory (GitHub runners set *) from
+	// letting Git accept the repository.
+	empty := filepath.Join(t.TempDir(), "gitconfig")
+	writeFile(t, empty, "")
+	t.Setenv("GIT_CONFIG_GLOBAL", empty)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Setenv("GIT_TEST_ASSUME_DIFFERENT_OWNER", "1")
 	wantErr(t, "dubious ownership", "ask", "example")
 	wantErr(t, "dubious ownership", "gate", repo)
