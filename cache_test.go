@@ -202,10 +202,18 @@ func TestCacheLifetime(t *testing.T) {
 		})
 	}
 
-	// A legacy entry beside v2/ is never read, changed, or removed.
-	legacy := writeFile(t, filepath.Join(repo, ".jev-check", "output", "cache", "0123.json"), `{"answers":{}}`)
-	gateCalls(t, requests, 0, repo, "--no-cache")
-	if data, _ := os.ReadFile(legacy); string(data) != `{"answers":{}}` {
+	// A legacy unwrapped answer at the old place for the same digest is never read, changed, or removed.
+	writeFile(t, path, string(valid))
+	answers := string(entry(t, path)["response"])
+	legacy := writeFile(t, filepath.Join(filepath.Dir(filepath.Dir(path)), filepath.Base(path)), answers)
+	os.Remove(path)
+	if n, cached := gateCalls(t, requests, 0, repo); n != 1 || cached {
+		t.Errorf("legacy entry: sent %d requests, cached %v", n, cached)
+	}
+	if e := entry(t, path); string(e["version"]) != "2" {
+		t.Errorf("no v2 envelope after a legacy entry: %v", e)
+	}
+	if data, _ := os.ReadFile(legacy); string(data) != answers {
 		t.Errorf("legacy entry changed: %s", data)
 	}
 
@@ -253,7 +261,7 @@ func TestCacheFailures(t *testing.T) {
 		before := len(*requests)
 		var stdout, stderr strings.Builder
 		code := run([]string{"gate", repo}, &stdout, &stderr)
-		if code != 0 || len(*requests) != before+1 || !strings.Contains(stderr.String(), "cache not saved") {
+		if code != 0 || len(*requests) != before+1 || !strings.Contains(stderr.String(), "jev-check: cache not saved") {
 			t.Errorf("exit %d, %d requests, stderr %s", code, len(*requests)-before, stderr.String())
 		}
 	}

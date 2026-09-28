@@ -350,7 +350,7 @@ func validateAnswers(answers map[string]answer, questions map[string]json.RawMes
 	return nil
 }
 
-// callJev sends a request to cfg's endpoint and saves it, with the response, under project/output/.
+// callJev sends a request to cfg's endpoint and saves it, with the response, under project/.jev-check/output/.
 // It returns the response and the absolute saved path.
 func callJev(project, name string, cfg settings, req request) (response, string, error) {
 	var res response

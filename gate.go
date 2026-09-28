@@ -22,6 +22,8 @@ DIR/.jev-check/project-context.json. Answers are cached for 24 hours in
 DIR/.jev-check/output/cache/v2/, keyed by the endpoint and the whole request:
 model, questions, project fields, tree, patch, and coding_style. Any change misses; a threshold change does not. --no-cache
 always calls the API and saves the new answers.
+The 24 hours are a policy, not a guarantee: a moving model alias such as
+jev-latest can change within them.
 The key, endpoint, and model come from DIR/.jev-check/.env; --model ID
 overrides its model (see jev-check doctor).
 A check's optional "coding_style" names a document in DIR; its working-tree
@@ -203,7 +205,7 @@ func fresh(created, now time.Time) bool {
 	return age >= 0 && age < cacheLifetime
 }
 
-// cachedJev returns the answers from project/output/cache/v2/ when the same request went to the
+// cachedJev returns the answers from project/.jev-check/output/cache/v2/ when the same request went to the
 // same endpoint less than cacheLifetime ago, else it calls Jev and caches the answers.
 // The key is the whole request, so any change to the model, questions, or state misses.
 // Thresholds are not in the request: the gate judges cached answers again on every run.
@@ -238,7 +240,8 @@ func cachedJev(project, name string, cfg settings, req request, noCache bool, st
 	// A failed cache write only costs an API call next time, so it warns and keeps the answer.
 	entry = cacheEntry{cacheVersion, time.Now().UTC().Format(time.RFC3339), res}
 	if err := writeCache(path, entry); err != nil {
-		fmt.Fprintf(stderr, "jev-check gate: cache not saved: %v\n", err)
+		// gate and eval both call here, so the warning names neither.
+		fmt.Fprintf(stderr, "jev-check: cache not saved: %v\n", err)
 	}
 	return res, false, nil
 }
