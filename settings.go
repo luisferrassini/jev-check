@@ -55,8 +55,13 @@ func loadSettings(project, model string) (settings, error) {
 // so a cloned repository cannot choose where the key goes.
 func readSettings(project string) (map[string]string, string, error) {
 	path := filepath.Join(project, settingsFile)
-	// Outside a Git work tree, as ask allows, there is nothing to be tracked in.
-	if _, err := git(project, "rev-parse", "--is-inside-work-tree"); err == nil {
+	// Outside a Git repository, as ask allows, there is nothing to be tracked in. Any other
+	// failure, such as a repository Git refuses for its owner, could hide a tracked file.
+	_, err := git(project, "rev-parse", "--is-inside-work-tree")
+	if err != nil && !strings.Contains(err.Error(), "not a git repository") {
+		return nil, path, fmt.Errorf("checking whether %s is tracked by Git: %w", path, err)
+	}
+	if err == nil {
 		out, err := git(project, "ls-files", "-z", "--", settingsFile)
 		if err != nil {
 			return nil, path, err
@@ -175,6 +180,10 @@ func doctorCmd(args []string, stdout, _ io.Writer) (int, error) {
 		}
 		if os.Getenv("TYPESAFE_API_KEY") != "" {
 			fmt.Fprintln(stdout, "info  API key  TYPESAFE_API_KEY in the environment is ignored")
+		}
+	} else {
+		for _, item := range []string{"endpoint", "model", "API key"} {
+			line(item, "", errors.New("not read: the settings file failed"))
 		}
 	}
 

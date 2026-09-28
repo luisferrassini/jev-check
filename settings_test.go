@@ -88,6 +88,11 @@ func TestTrackedSettings(t *testing.T) {
 	t.Chdir(repo)
 	wantErr(t, "tracked", "ask", "--dry-run", "example")
 	wantErr(t, "tracked", "ask", "example")
+
+	// A repository Git refuses is not treated as no repository.
+	t.Setenv("GIT_TEST_ASSUME_DIFFERENT_OWNER", "1")
+	wantErr(t, "dubious ownership", "ask", "example")
+	wantErr(t, "dubious ownership", "gate", repo)
 	if len(*requests) != 0 {
 		t.Errorf("sent %d requests with a tracked settings file", len(*requests))
 	}
@@ -283,8 +288,11 @@ func TestDoctor(t *testing.T) {
 		}
 		os.Chmod(filepath.Join(repo, ".jev-check", "output"), 0o755)
 		os.Chmod(settings, 0)
-		if out := wantCode(t, 2, "doctor", repo); !strings.Contains(out, "FAIL  settings file  ") {
-			t.Errorf("doctor:\n%s", out)
+		out := wantCode(t, 2, "doctor", repo)
+		for _, want := range []string{"FAIL  settings file  ", "FAIL  endpoint  not read", "FAIL  model  not read", "FAIL  API key  not read"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("missing %q in:\n%s", want, out)
+			}
 		}
 		os.Chmod(settings, 0o644)
 	}
