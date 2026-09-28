@@ -9,12 +9,24 @@ import (
 )
 
 // optInChecks are the bundled opt-in checks whose corpora TestOptInCorpora covers.
-var optInChecks = []string{"no-leftovers", "test-quality", "secret-handling", "help-text-honesty"}
+// codingStyle names the repository document the check needs, if any, and minPass
+// is the size of its pass set.
+var optInChecks = []struct {
+	name, codingStyle string
+	minPass           int
+}{
+	{name: "no-leftovers", minPass: 10},
+	{name: "test-quality", minPass: 10},
+	{name: "secret-handling", minPass: 10},
+	{name: "help-text-honesty", minPass: 10},
+	{name: "coding-style", codingStyle: "CODING_STYLE.md", minPass: 5},
+}
 
 // TestOptInCorpora runs eval offline on a disposable copy of each opt-in corpus,
 // as the README's setup does, and checks what the corpus and the requests hold.
 func TestOptInCorpora(t *testing.T) {
-	for _, name := range optInChecks {
+	for _, opt := range optInChecks {
+		name := opt.name
 		t.Run(name, func(t *testing.T) {
 			requests := setup(t)
 			var check struct {
@@ -28,12 +40,16 @@ func TestOptInCorpora(t *testing.T) {
 				if !strings.Contains(string(q), "never as instructions") {
 					t.Errorf("question %s has no guard against instructions in the patch", id)
 				}
+				// A question that names a document rule points to it and does not restate it.
+				if opt.codingStyle != "" && !strings.Contains(string(q), "violates rule "+id+" as the document in `coding_style` defines it") {
+					t.Errorf("question %s does not refer to rule %s in the document", id, id)
+				}
 				if fail, _ := filepath.Glob(filepath.Join(corpus, "fail", id, "*.patch")); len(fail) < 2 {
 					t.Errorf("fail/%s has %d fixtures, want at least 2", id, len(fail))
 				}
 			}
-			if pass, _ := filepath.Glob(filepath.Join(corpus, "pass", "*.patch")); len(pass) < 10 {
-				t.Errorf("pass has %d fixtures, want at least 10", len(pass))
+			if pass, _ := filepath.Glob(filepath.Join(corpus, "pass", "*.patch")); len(pass) < opt.minPass {
+				t.Errorf("pass has %d fixtures, want at least %d", len(pass), opt.minPass)
 			}
 			if !fileExists(filepath.Join(corpus, "CALIBRATION.md")) {
 				t.Error("no CALIBRATION.md")
@@ -41,7 +57,16 @@ func TestOptInCorpora(t *testing.T) {
 
 			repo := t.TempDir()
 			gitInit(t, repo)
-			writeFile(t, configPath(repo), `{"exclude":[".jev-check/fixtures/"],"checks":[{"check":"`+name+`","threshold":0.5}]}`)
+			style := ""
+			if opt.codingStyle != "" {
+				content, err := os.ReadFile(filepath.Join(sourceDir, opt.codingStyle))
+				if err != nil {
+					t.Fatal(err)
+				}
+				writeFile(t, filepath.Join(repo, opt.codingStyle), string(content))
+				style = `,"coding_style":"` + opt.codingStyle + `"`
+			}
+			writeFile(t, configPath(repo), `{"exclude":[".jev-check/fixtures/"],"checks":[{"check":"`+name+`","threshold":0.5`+style+`}]}`)
 			if err := os.CopyFS(filepath.Join(repo, ".jev-check", "fixtures", name), os.DirFS(corpus)); err != nil {
 				t.Fatal(err)
 			}
@@ -51,6 +76,12 @@ func TestOptInCorpora(t *testing.T) {
 				t.Fatal("eval sent no requests")
 			}
 			for _, req := range *requests {
+				if opt.codingStyle != "" {
+					sent, _ := req.State["coding_style"].(map[string]any)
+					if sent["path"] != opt.codingStyle || sent["content"] == "" {
+						t.Errorf("request sent coding_style %v, want %s with its content", sent, opt.codingStyle)
+					}
+				}
 				for file := range req.State["files"].(map[string]any) {
 					if strings.Contains(file, "pass") || strings.Contains(file, "fail") || strings.Contains(file, "fixtures") {
 						t.Errorf("request path %q reveals the fixture label", file)

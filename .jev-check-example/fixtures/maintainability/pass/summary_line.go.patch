@@ -1,0 +1,17 @@
+diff --git a/summary_line.go b/summary_line.go
+new file mode 100644
+index 0000000..a717d04
+--- /dev/null
++++ b/summary_line.go
+@@ -0,0 +1,11 @@
++package main
++
++import (
++	"fmt"
++	"io"
++)
++
++func printSummary(w io.Writer, name string, passed, failed int) {
++	format := func(pattern string, args ...any) string { return "  " + fmt.Sprintf(pattern, args...) }
++	fmt.Fprintln(w, format("%s: %d passed, %d failed", name, passed, failed))
++}

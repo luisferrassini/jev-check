@@ -1,0 +1,23 @@
+diff --git a/hosts.go b/hosts.go
+new file mode 100644
+index 0000000..e1e2910
+--- /dev/null
++++ b/hosts.go
+@@ -0,0 +1,17 @@
++package main
++
++import (
++	"fmt"
++	"slices"
++)
++
++func checkAllowed(allowed []string, host, proxy string) error {
++	contains := func(list []string, item string) bool { return slices.Contains(list, item) }
++	if !contains(allowed, host) {
++		return fmt.Errorf("host %s is not in the allow list", host)
++	}
++	if proxy != "" && !contains(allowed, proxy) {
++		return fmt.Errorf("proxy %s is not in the allow list", proxy)
++	}
++	return nil
++}
