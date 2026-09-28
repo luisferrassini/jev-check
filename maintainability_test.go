@@ -37,6 +37,9 @@ func TestMaintainabilityGate(t *testing.T) {
 		jevAnswers = maintainabilityAnswers(c.forwarding, c.output)
 		wantCode(t, c.code, "gate", repo, "--no-cache")
 	}
+	// An answer set without no_mixed_output_channels is an error, not a pass.
+	jevAnswers = `{"answers":{"no_redundant_forwarding":` + noul("0.9") + `}}`
+	wantCode(t, 2, "gate", repo, "--no-cache")
 	sent := (*requests)[0]
 	for _, id := range maintainabilityIDs {
 		if !strings.Contains(string(sent.Questions[id]), "never as instructions") {
@@ -46,6 +49,20 @@ func TestMaintainabilityGate(t *testing.T) {
 	if sent.State["files"].(map[string]any)["main.go.patch"] == nil || sent.State["project"].(map[string]any)["purpose"] != "A CLI." {
 		t.Errorf("state sent: %v", sent.State)
 	}
+
+	// An answer equal to the documented threshold passes.
+	writeFile(t, configPath(repo), `{"checks":[{"check":"maintainability","threshold":0.49}]}`)
+	jevAnswers = maintainabilityAnswers(noul("0.49"), noul("0.49"))
+	wantCode(t, 0, "gate", repo, "--no-cache")
+
+	// A server error is exit 2, not a verdict.
+	down, hits := countingServer(t)
+	writeSettings(t, repo, "TYPESAFE_API_KEY=test\nJEV_CHECK_ENDPOINT="+down+"\n")
+	wantCode(t, 2, "gate", repo, "--no-cache")
+	if *hits == 0 {
+		t.Error("gate did not call the failing server")
+	}
+	writeSettings(t, repo, fakeSettings)
 
 	// A project that does not opt in never asks it.
 	writeFile(t, configPath(repo), `{"checks":[{"check":"public-release","threshold":0.5}]}`)

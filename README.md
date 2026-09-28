@@ -94,6 +94,8 @@ It prints one `ok` or `FAIL` line each for the settings file, the endpoint, the 
 
 `ask` and `gate` call the API. `list`, `init`, `context`, `doctor`, and `--dry-run` do not.
 
+Still in `"$demo"`:
+
 ```bash
 jev-check ask example
 ```
@@ -147,7 +149,7 @@ The gate reads the staged version of each file. After you edit a file, run `git 
 
 ### 9. Use it on your project
 
-Go to your project's root folder and repeat steps 4 to 7 there, without the `mktemp` and `git init` lines. If the project already has a `.jev-check/project-context.json`, `init` stops and leaves it alone. Commit `.jev-check/` so everyone uses the same checks; its `.gitignore` keeps the key and the answers out. If the project has a `project-context.json` at its root from an older version, see [Moving to `.jev-check/`](#moving-to-jev-check). To let a coding agent run the gate, see [Use it from an agent](#use-it-from-an-agent).
+Go to your project's root folder and repeat steps 4 to 7 there, without the `mktemp` and `git init` lines. In step 7, skip the `printf` line, which would overwrite your `README.md`. Stage one of your own changed files instead, with `git add -- <file>`. If the project already has a `.jev-check/project-context.json`, `init` stops and leaves it alone. Commit `.jev-check/` so everyone uses the same checks; its `.gitignore` keeps the key and the answers out. If the project has a `project-context.json` at its root from an older version, see [Moving to `.jev-check/`](#moving-to-jev-check). To let a coding agent run the gate, see [Use it from an agent](#use-it-from-an-agent).
 
 ## Troubleshooting
 
@@ -157,7 +159,7 @@ Go to your project's root folder and repeat steps 4 to 7 there, without the `mkt
 | `jev-check: command not found` | Add `$(go env GOBIN)`, or `$(go env GOPATH)/bin`, to your `PATH`. |
 | `open .../.jev-check/project-context.json: no such file or directory` | You are not in the project folder, or it has no configuration yet. `cd` into the project, or pass it as `jev-check gate <project>`, and run `jev-check init` if needed. There is no search in parent folders. |
 | `.../project-context.json is no longer read` | The project uses the old layout. Move the files as in [Moving to `.jev-check/`](#moving-to-jev-check). |
-| `fatal: not a git repository` | Run `git init` in the project, or point at the right folder. |
+| `fatal: not a git repository` or `... is not in a git working tree` | Run `git init` in the project, or point at the right folder. |
 | `set TYPESAFE_API_KEY in .../.jev-check/.env` | Add the key as in step 5. A key in the environment or in the project's `.env` is ignored. |
 | `.../.jev-check/.env is tracked by Git` | Run `git rm --cached -- .jev-check/.env` and add `.env` to `.jev-check/.gitignore`. jev-check refuses a settings file that a repository ships. |
 | `JEV_CHECK_ENDPOINT in .../.jev-check/.env must ...` | Fix the endpoint as the message says. See [Configuration](#configuration). |
@@ -261,6 +263,8 @@ src='<jev-check checkout>/skills/jev-check/SKILL.md'
 dst='.claude/skills/jev-check/SKILL.md'
 if [ -e "$dst" ]; then diff -u "$dst" "$src"; else mkdir -p "$(dirname "$dst")" && cp "$src" "$dst"; fi
 ```
+
+For Codex, set `dst='.agents/skills/jev-check/SKILL.md'` instead.
 
 It never replaces an existing skill. It shows the difference instead, so you can keep your changes or replace the file yourself. Check that the agent sees the skill in its own skill list.
 
@@ -374,10 +378,10 @@ In this run with `jev-latest` on 2026-09-26, every clean fixture scored 0.83 or 
 
 `maintainability` is opt-in and covers Go source only. It makes two narrow judgments about new code in one patch:
 
-- `no_redundant_forwarding`: no new local closure that only forwards one call, is called once, and adds nothing. Top-level functions, exported or documented operations, adapters passed as callbacks, helpers called more than once, and helpers that change arguments or manage a resource are accepted.
+- `no_redundant_forwarding`: no new local closure that only forwards one call, is called once, and adds nothing. Top-level functions, exported or documented operations, adapters passed as callbacks, helpers called more than once, test helpers, and helpers that branch, change arguments or results, or manage a resource are accepted. So is a closure in a hunk that does not show the whole enclosing function.
 - `no_mixed_output_channels`: no new progress or debug prose on the same stream as machine-readable data, where the patch shows that the stream holds only data. Diagnostics on stderr, output meant for people, separate modes, help text, and status inside the data schema are accepted.
 
-It judges only what added or changed lines show. Removed code, untouched context, non-Go files, documentation, and visible generated files pass. A pass does not mean the project is maintainable. To enable it, add `{ "check": "maintainability", "threshold": 0.49 }` to `checks`. The threshold and the scores behind it are in [`.jev-check-example/fixtures/maintainability/CALIBRATION.md`](.jev-check-example/fixtures/maintainability/CALIBRATION.md). To evaluate it, use the disposable project from [Evaluating an opt-in check](#evaluating-an-opt-in-check) with `.jev-check-example/fixtures/maintainability`, no `CODING_STYLE.md`, and `{"check":"maintainability","threshold":0.49}`.
+It judges only what added or changed lines show. Removed code, deletion-only patches, untouched context, non-Go files, documentation, and visible generated files pass. A file counts as generated only when its visible first lines carry the standard `// Code generated ... DO NOT EDIT.` header, not from its name alone. A pass does not mean the project is maintainable. To enable it, add `{ "check": "maintainability", "threshold": 0.49 }` to `checks`. The threshold and the scores behind it are in [`.jev-check-example/fixtures/maintainability/CALIBRATION.md`](.jev-check-example/fixtures/maintainability/CALIBRATION.md). To evaluate it, use the disposable project from [Evaluating an opt-in check](#evaluating-an-opt-in-check) with `.jev-check-example/fixtures/maintainability`, no `CODING_STYLE.md`, and `{"check":"maintainability","threshold":0.49}`.
 
 `no-leftovers` is opt-in and covers any language. It makes four narrow judgments about lines added in one patch:
 

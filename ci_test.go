@@ -58,7 +58,8 @@ func TestShippedConfigs(t *testing.T) {
 		var state struct {
 			Project map[string]any `json:"project"`
 		}
-		if err := json.Unmarshal([]byte(wantCode(t, 0, "context", repo)), &state); err != nil || state.Project["purpose"] == nil {
+		if err := json.Unmarshal([]byte(wantCode(t, 0, "context", repo)), &state); err != nil ||
+			state.Project["purpose"] == nil || state.Project["rules"] == nil || state.Project["folders"] == nil {
 			t.Errorf("%s: context project %v, %v", name, state.Project, err)
 		}
 	}

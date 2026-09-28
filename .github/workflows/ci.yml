@@ -46,4 +46,4 @@ jobs:
           mkdir -p .jev-check && ln -s ../.jev-check-example/project-context.json ../.jev-check-example/input ../.jev-check-example/fixtures .jev-check/
           ./jev-check context .
       - name: No tracked file changed
-        run: git diff --exit-code
+        run: git diff HEAD --exit-code
