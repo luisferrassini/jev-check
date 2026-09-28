@@ -150,7 +150,7 @@ func TestCodingStyleInvalid(t *testing.T) {
 	for name, content := range docs {
 		writeFile(t, filepath.Join(repo, name), content)
 	}
-	bad := []string{`1`, `null`, `""`, `"  "`, `"missing.md"`, `"adir"`, `"link.md"`, `"linkdir/doc.md"`, `"../CODING_STYLE.md"`,
+	bad := []string{`1`, `null`, `""`, `"  "`, `"missing.md"`, `"CODING_STYLE.md/"`, `"adir/doc.md/"`, `"adir"`, `"link.md"`, `"linkdir/doc.md"`, `"../CODING_STYLE.md"`,
 		`"adir/../../x.md"`, `"` + filepath.Join(repo, "CODING_STYLE.md") + `"`, `"blank.md"`, `"nul.md"`, `"latin1.md"`, `"big.md"`}
 	for _, value := range bad {
 		styleConfig(t, repo, `{"check":"public-release","threshold":0.2,"coding_style":`+value+`}`)
@@ -163,6 +163,22 @@ func TestCodingStyleInvalid(t *testing.T) {
 			}
 		}
 	}
+
+	// A path that looks like a secret is not echoed, missing or unreadable.
+	secretName := "docs/" + awsKey + ".md"
+	if os.Geteuid() != 0 {
+		writeFile(t, filepath.Join(repo, "unreadable", secretName), "rules\n")
+		os.Chmod(filepath.Join(repo, "unreadable", secretName), 0)
+	}
+	for _, name := range []string{secretName, "unreadable/" + secretName} {
+		styleConfig(t, repo, `{"check":"public-release","threshold":0.2,"coding_style":"`+name+`"}`)
+		for _, args := range [][]string{{"gate", repo}, {"context", repo}} {
+			if stderr := wantErr(t, "public-release", args...); strings.Contains(stderr, awsKey) || !strings.Contains(stderr, "not shown") {
+				t.Errorf("coding_style %s, %s: %s", name, args[0], stderr)
+			}
+		}
+	}
+	os.RemoveAll(filepath.Join(repo, "unreadable"))
 
 	// A later invalid reference stops the gate before the first valid check runs.
 	styleConfig(t, repo, withStyle+`,{"check":"other","threshold":0.2,"coding_style":"missing.md"}`)

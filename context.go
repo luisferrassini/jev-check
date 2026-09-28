@@ -97,9 +97,11 @@ func projectState(dir string, p project) (map[string]any, error) {
 	return map[string]any{"project": p.about, "tree": splitNUL(out)}, nil
 }
 
-// git runs git in dir and returns its output. An error includes git's message.
+// git runs git in dir and returns its output. An error includes git's message,
+// untranslated so callers can match it.
 func git(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -154,8 +156,9 @@ func initCmd(args []string, stdout, _ io.Writer) (int, error) {
 		return 0, fmt.Errorf("%s is not in a git working tree", dir)
 	}
 	// Mkdir, not MkdirAll: a file or symlink named .jev-check is an error, not a folder to follow.
-	if err := os.Mkdir(filepath.Join(dir, jevDir), 0o755); err != nil && !errors.Is(err, fs.ErrExist) {
-		return 0, err
+	mkErr := os.Mkdir(filepath.Join(dir, jevDir), 0o755)
+	if mkErr != nil && !errors.Is(mkErr, fs.ErrExist) {
+		return 0, mkErr
 	}
 	if info, err := os.Lstat(filepath.Join(dir, jevDir)); err != nil || !info.IsDir() {
 		return 0, fmt.Errorf("%s is not a folder", filepath.Join(dir, jevDir))
@@ -164,6 +167,9 @@ func initCmd(args []string, stdout, _ io.Writer) (int, error) {
 	if err := createFile(path, initConfig); errors.Is(err, fs.ErrExist) {
 		return 0, fmt.Errorf("%s already exists; inspect it instead of running init", path)
 	} else if err != nil {
+		if mkErr == nil {
+			os.Remove(filepath.Join(dir, jevDir)) // only this run made it; Remove keeps a non-empty folder
+		}
 		return 0, err
 	}
 	ignore := filepath.Join(dir, jevDir, ".gitignore")
@@ -228,7 +234,12 @@ func loadStyles(dir string, checks []gateCheck) ([]string, map[string]string, er
 			docs[path], err = readStyle(filepath.Join(dir, filepath.FromSlash(path)))
 		}
 		if err != nil {
-			return nil, nil, fmt.Errorf("check %s: coding_style %s: %w", c.Check, printable(string(c.CodingStyle)), err)
+			// The path may hold a secret, so neither it nor an OS error that repeats it is printed.
+			var pathErr *fs.PathError
+			if errors.As(err, &pathErr) {
+				err = fmt.Errorf("%s: %w", pathErr.Op, pathErr.Err)
+			}
+			return nil, nil, fmt.Errorf("check %s: coding_style %s: %w", c.Check, safeLabel(string(c.CodingStyle), "path (not shown)"), err)
 		}
 		paths[i] = path
 	}
@@ -246,6 +257,9 @@ func stylePath(dir string, raw json.RawMessage) (string, error) {
 		return "", errors.New("must be relative to the project folder")
 	}
 	sep := string(filepath.Separator)
+	if strings.HasSuffix(filepath.FromSlash(rel), sep) {
+		return "", errors.New("must name a file, without a trailing " + sep)
+	}
 	if slices.Contains(strings.Split(filepath.FromSlash(rel), sep), "..") {
 		return "", errors.New("must not contain ..")
 	}

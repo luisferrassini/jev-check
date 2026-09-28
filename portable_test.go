@@ -209,8 +209,8 @@ func TestInit(t *testing.T) {
 	}
 }
 
-// TestInstalledBinary proves what run cannot: a moved binary still has its bundled checks
-// and writes nothing beside itself.
+// TestInstalledBinary proves what run cannot: a moved binary still has its bundled checks,
+// reads no settings and writes nothing beside itself, and a symlink to it changes no project path.
 func TestInstalledBinary(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds the binary")
@@ -219,21 +219,68 @@ func TestInstalledBinary(t *testing.T) {
 	if out, err := exec.Command("go", "build", "-o", filepath.Join(bin, "jev-check"), ".").CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
+	requests := setup(t)
+	writeFile(t, filepath.Join(bin, ".env"), fakeSettings)
+	writeSettings(t, bin, fakeSettings)
 	os.Chmod(bin, 0o555)
 	t.Cleanup(func() { os.Chmod(bin, 0o755) })
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	runBin := func(dir, name string, args ...string) (int, string) {
+		t.Helper()
+		cmd := exec.Command(name, args...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if cmd.ProcessState == nil {
+			t.Fatalf("%s %v: %v", name, args, err)
+		}
+		return cmd.ProcessState.ExitCode(), string(out)
+	}
 	fresh := t.TempDir()
 	for _, args := range [][]string{{"--help"}, {"list"}, {"ask", "example", "--dry-run"}} {
-		cmd := exec.Command("jev-check", args...)
-		cmd.Dir = fresh
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Errorf("jev-check %v: %v\n%s", args, err, out)
+		if code, out := runBin(fresh, "jev-check", args...); code != 0 {
+			t.Errorf("jev-check %v: exit %d\n%s", args, code, out)
 		}
 	}
-	for _, dir := range []string{bin, fresh} {
-		if entries, _ := os.ReadDir(dir); len(entries) != map[string]int{bin: 1, fresh: 0}[dir] {
+	if code, out := runBin(fresh, "jev-check", "ask", "example"); code != 2 || !strings.Contains(out, "set TYPESAFE_API_KEY in "+filepath.Join(fresh, settingsFile)) {
+		t.Errorf("settings beside the binary were read: exit %d\n%s", code, out)
+	}
+	if len(*requests) != 0 {
+		t.Errorf("sent %d requests without project settings", len(*requests))
+	}
+
+	// Through PATH or a symlink, a real request uses the project's settings and output.
+	project := t.TempDir()
+	writeSettings(t, project, fakeSettings)
+	links := t.TempDir()
+	os.Symlink(filepath.Join(bin, "jev-check"), filepath.Join(links, "jev"))
+	for _, name := range []string{"jev-check", filepath.Join(links, "jev")} {
+		code, out := runBin(project, name, "ask", "example")
+		if code != 0 || !strings.Contains(out, "saved: "+filepath.Join(project, ".jev-check", "output")+"/") {
+			t.Errorf("%s ask example: exit %d\n%s", name, code, out)
+		}
+	}
+	if len(*requests) != 2 {
+		t.Errorf("sent %d requests, want 2", len(*requests))
+	}
+	for dir, want := range map[string]int{bin: 3, fresh: 0, links: 1} {
+		if entries, _ := os.ReadDir(dir); len(entries) != want {
 			t.Errorf("%s holds %v", dir, entries)
 		}
+	}
+
+	// A failed write leaves no partial config, and removes only a folder this run made.
+	repo := t.TempDir()
+	gitRun(t, repo, "init", "-q")
+	initFull := func() (int, string) {
+		t.Helper()
+		return runBin(repo, "sh", "-c", `ulimit -f 0 && exec jev-check init .`)
+	}
+	if code, out := initFull(); code != 2 || !strings.Contains(out, "writing ") || fileExists(filepath.Join(repo, ".jev-check")) {
+		t.Errorf("init with a full disk: exit %d, .jev-check left: %v\n%s", code, fileExists(filepath.Join(repo, ".jev-check")), out)
+	}
+	writeSettings(t, repo, fakeSettings)
+	if code, out := initFull(); code != 2 || !strings.Contains(out, "writing ") || fileExists(configPath(repo)) || !fileExists(filepath.Join(repo, settingsFile)) {
+		t.Errorf("init with a full disk: exit %d\n%s", code, out)
 	}
 }
 
