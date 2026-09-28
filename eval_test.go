@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -104,12 +105,24 @@ func TestEvalCoverage(t *testing.T) {
 	wantCode(t, 0, "eval", "two", repo)
 
 	// A malformed last fixture stops the run even when the others are cached.
+	// The cache folder is swapped for a file, so any cache lookup would miss and send a request.
 	before := len(*requests)
 	writeFile(t, filepath.Join(fixtures, "fail", "q2", "z.patch"), "+++ b/z.go\n+package z\n")
-	wantCode(t, 2, "eval", "two", repo)
+	cache := filepath.Join(repo, ".jev-check", "output", "cache", "v2")
+	if err := os.Rename(cache, cache+".saved"); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, cache, "not a folder\n")
+	var stdout strings.Builder
+	stderr.Reset()
+	if code := run([]string{"eval", "two", repo}, &stdout, &stderr); code != 2 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "z.patch") {
+		t.Errorf("exit %d\n%s%s", code, stdout.String(), stderr.String())
+	}
 	if len(*requests) != before {
 		t.Error("a malformed fixture let requests through")
 	}
+	os.Remove(cache)
+	os.Rename(cache+".saved", cache)
 	os.Remove(filepath.Join(fixtures, "fail", "q2", "z.patch"))
 
 	// A check with no yes/no question cannot be evaluated.
@@ -159,6 +172,8 @@ func TestPatchPaths(t *testing.T) {
 	for _, kind := range []string{"quote", "backslash", "tab", "accent"} {
 		writeFile(t, filepath.Join(fixtures, "pass", kind+".patch"), gitPatch(t, names[kind], "x\n"))
 	}
+	// Carriage returns in hunk content are file data, not header line endings.
+	writeFile(t, filepath.Join(fixtures, "pass", "crlf.patch"), gitPatch(t, "crlf.txt", "a\r\nb\r\n"))
 	// Git quotes non-ASCII paths by default; with core.quotePath=false it writes them as they are.
 	raw := t.TempDir()
 	gitInit(t, raw)
@@ -178,7 +193,7 @@ func TestPatchPaths(t *testing.T) {
 		}
 	}
 	slices.Sort(got)
-	expected := []string{"bad-q1.go", "bad-q2.go", "dir/mod file.go", "gone.go", "hunk.txt", "new.go", "p new.txt",
+	expected := []string{"bad-q1.go", "bad-q2.go", "crlf.txt", "dir/mod file.go", "gone.go", "hunk.txt", "new.go", "p new.txt",
 		`back\slash.txt`, "café.txt", `q"b.txt`, "raw ü.txt", "t\tb.txt"}
 	slices.Sort(expected)
 	if !slices.Equal(got, expected) {
@@ -201,6 +216,19 @@ func TestPatchPaths(t *testing.T) {
 		"lone":      "+++ b/x\n+secret-content\n",
 		"conflict":  "diff --git a/x b/y\nrename from x\nrename to y\n--- a/x\n+++ b/z\n@@ -1 +1 @@\n-a\n+secret-content\n",
 		"devnull":   "diff --git a/x b/x\n--- /dev/null\n+++ /dev/null\n@@ -0,0 +1 @@\n+secret-content\n",
+		// Path headers must agree, and every one is checked, not only the one sent.
+		"differing":        "diff --git a/x b/y\n--- a/x\n+++ b/y\n@@ -1 +1 @@\n-a\n+secret-content\n",
+		"rename from":      "diff --git a/x b/y\nrename from zzz\nrename to y\n--- a/x\n+++ b/y\n@@ -1 +1 @@\n-a\n+secret-content\n",
+		"rename traversal": "diff --git a/../x b/y\nsimilarity index 100%\nrename from ../x\nrename to y\n",
+		"old traversal":    "diff --git a/../x b/x\n--- a/../x\n+++ b/x\n@@ -1 +1 @@\n-a\n+secret-content\n",
+		"old prefix":       "diff --git a/x b/x\n--- x\n+++ b/x\n@@ -1 +1 @@\n-a\n+secret-content\n",
+		// Git writes only C escapes and three-digit octal, not Go's \x, \u, or \U.
+		"hex escape":     "diff --git \"a/x\\x41\" \"b/x\\x41\"\n--- /dev/null\n+++ \"b/x\\x41\"\n@@ -0,0 +1 @@\n+secret-content\n",
+		"unicode escape": "diff --git \"a/x\\u00e9\" \"b/x\\u00e9\"\n--- /dev/null\n+++ \"b/x\\u00e9\"\n@@ -0,0 +1 @@\n+secret-content\n",
+		"long escape":    "diff --git \"a/x\\U0001F600\" \"b/x\\U0001F600\"\n--- /dev/null\n+++ \"b/x\\U0001F600\"\n@@ -0,0 +1 @@\n+secret-content\n",
+		// A second ---/+++ pair after the first hunk is a second file without its diff --git line.
+		"second file": "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n--- a/y\n+++ b/y\n@@ -1 +1 @@\n-a\n+secret-content\n",
+		"crlf":        "diff --git a/x b/x\r\n--- /dev/null\r\n+++ b/x\r\n@@ -0,0 +1 @@\r\n+secret-content\r\n",
 	} {
 		path := writeFile(t, filepath.Join(fixtures, "pass", "zz.patch"), bad)
 		var stdout, stderr strings.Builder
@@ -208,5 +236,74 @@ func TestPatchPaths(t *testing.T) {
 			t.Errorf("%s: exit %d\n%s%s", name, code, stdout.String(), stderr.String())
 		}
 		os.Remove(path)
+	}
+}
+
+// TestEvalGateParity checks that eval sends a staged file's fixture with the same state the gate sends.
+func TestEvalGateParity(t *testing.T) {
+	requests := setup(t)
+	repo, fixtures := evalProject(t, `{"check":"two","threshold":0.5}`)
+	writeFile(t, filepath.Join(repo, "dir", "a.go"), "package a\n")
+	gitRun(t, repo, "add", "dir/a.go")
+	wantCode(t, 0, "gate", repo)
+	if len(*requests) != 1 {
+		t.Fatalf("gate sent %d requests, want 1", len(*requests))
+	}
+	gateReq := (*requests)[0]
+
+	patch, err := git(repo, "diff", "--cached", "--relative", "--", "dir/a.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(fixtures, "pass", "a.patch"), patch)
+	writeFile(t, filepath.Join(fixtures, "fail", "q1", "b.patch"), gitPatch(t, "bad-q1.go", "x\n"))
+	writeFile(t, filepath.Join(fixtures, "fail", "q2", "c.patch"), gitPatch(t, "bad-q2.go", "x\n"))
+	wantCode(t, 0, "eval", "two", repo, "--no-cache")
+	i := slices.IndexFunc((*requests)[1:], func(r request) bool { return r.State["files"].(map[string]any)["dir/a.go.patch"] != nil })
+	if i < 0 {
+		t.Fatal("eval sent no request for dir/a.go")
+	}
+	if evalReq := (*requests)[1+i]; !reflect.DeepEqual(evalReq, gateReq) {
+		t.Errorf("eval request differs from the gate's\n eval %+v\n gate %+v", evalReq, gateReq)
+	}
+}
+
+// TestEvalThresholdEnds checks thresholds 0 and 1: an answer equal to the threshold passes.
+func TestEvalThresholdEnds(t *testing.T) {
+	setup(t)
+	t.Cleanup(func() { jevAnswers = "" })
+	repo, fixtures := evalProject(t, `{"check":"two","threshold":0.5}`)
+	writeFile(t, filepath.Join(fixtures, "pass", "a.patch"), gitPatch(t, "a.go", "package a\n"))
+	writeFile(t, filepath.Join(fixtures, "fail", "q1", "b.patch"), gitPatch(t, "b.go", "package b\n"))
+	writeFile(t, filepath.Join(fixtures, "fail", "q2", "c.patch"), gitPatch(t, "c.go", "package c\n"))
+	answers := func(v string) string {
+		return `{"answers":{"q1":{"type":"noul","noul":` + v + `},"q2":{"type":"noul","noul":` + v + `},"info":{"type":"choice","choice":"x","probabilities":{"x":1}}}}`
+	}
+	for _, c := range []struct{ threshold, answer, want string }{
+		{"0", "0", "eval: 2 misses in 3 fixtures\n"},
+		{"1", "1", "eval: 2 misses in 3 fixtures\n"},
+		{"1", "0.999", "eval: 2 misses in 3 fixtures\n"},
+	} {
+		jevAnswers = answers(c.answer)
+		writeFile(t, configPath(repo), `{"exclude":[".jev-check/fixtures/",".jev-check/input/"],"checks":[{"check":"two","threshold":`+c.threshold+`}]}`)
+		out := wantCode(t, 1, "eval", "two", repo, "--no-cache")
+		passFails := strings.Contains(out, "pass/a.patch fails")
+		if !strings.HasSuffix(out, c.want) || passFails != (c.answer == "0.999") {
+			t.Errorf("threshold %s, answer %s:\n%s", c.threshold, c.answer, out)
+		}
+	}
+}
+
+// TestEvalStyleSecret checks that a secret in the coding_style document is named as such.
+func TestEvalStyleSecret(t *testing.T) {
+	requests := setup(t)
+	repo, fixtures := evalProject(t, `{"check":"two","threshold":0.5,"coding_style":"STYLE.md"}`)
+	writeFile(t, filepath.Join(repo, "STYLE.md"), "# Style\nexample = "+awsKey+"\n")
+	writeFile(t, filepath.Join(fixtures, "pass", "a.patch"), gitPatch(t, "a.go", "package a\n"))
+	writeFile(t, filepath.Join(fixtures, "fail", "q1", "b.patch"), gitPatch(t, "b.go", "package b\n"))
+	writeFile(t, filepath.Join(fixtures, "fail", "q2", "c.patch"), gitPatch(t, "c.go", "package c\n"))
+	out := wantBlocked(t, requests, awsKey, "eval", "two", repo)
+	if !strings.Contains(out, "eval: BLOCKED, the coding_style document looks like it holds a secret") {
+		t.Errorf("eval output:\n%s", out)
 	}
 }

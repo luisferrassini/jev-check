@@ -30,7 +30,9 @@ It is sent under the path in its headers: the new path, or the old path of a
 deleted file. Binary, mode-only, and multi-file patches are refused.
 
 Every fixture is read, parsed, and scanned for secrets before any is sent.
-Answers share the gate's cache. The key, endpoint, and model come from
+Answers share the gate's cache: 24 hours, keyed by the endpoint and the whole
+request. A moving model alias can change within that time. --no-cache always
+calls the API and saves the new answers. The key, endpoint, and model come from
 DIR/.jev-check/.env; --model ID overrides its model (see jev-check doctor).
 Exit 0 no misses, 1 a miss or a secret found, 2 usage, fixture, or API error.
 `
@@ -115,7 +117,7 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	for i, job := range jobs {
 		patch, err := os.ReadFile(filepath.Join(fixtures, job.rel))
 		if err != nil {
-			return 0, err
+			return 0, errors.New(printable(err.Error()))
 		}
 		// The patch is sent under its target path, as the gate sends it, so the fixture folder never reaches Jev.
 		file, err := patchPath(string(patch))
@@ -129,8 +131,10 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	}
 	// A secret in the shared document is reported once, not once per fixture.
 	var blocked []string
+	holder := "a fixture"
 	if err := styleSecrets(styles); err != nil {
 		blocked = append(blocked, err.Error())
+		holder = "the coding_style document"
 	} else {
 		for _, job := range jobs {
 			if err := scanRequest(job.req); err != nil {
@@ -139,7 +143,7 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 		}
 	}
 	if blocked != nil {
-		fmt.Fprintf(stdout, "%s\neval: BLOCKED, a fixture looks like it holds a secret; nothing was sent\n", strings.Join(blocked, "\n"))
+		fmt.Fprintf(stdout, "%s\neval: BLOCKED, %s looks like it holds a secret; nothing was sent\n", strings.Join(blocked, "\n"), holder)
 		return 1, nil
 	}
 	limit := func(q string) float64 {
@@ -207,7 +211,7 @@ func findFixtures(fixtures string, blocking []string) ([]fixture, error) {
 	add := func(rel, question string) error {
 		entries, err := os.ReadDir(filepath.Join(fixtures, rel))
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return err
+			return errors.New(printable(err.Error()))
 		}
 		for _, e := range entries {
 			name := filepath.Join(rel, e.Name())
@@ -226,7 +230,7 @@ func findFixtures(fixtures string, blocking []string) ([]fixture, error) {
 	}
 	entries, err := os.ReadDir(filepath.Join(fixtures, "fail"))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, err
+		return nil, errors.New(printable(err.Error()))
 	}
 	for _, e := range entries {
 		path := printable(filepath.Join(fixtures, "fail", e.Name()))
@@ -266,17 +270,21 @@ func patchPath(patch string) (string, error) {
 		return "", fmt.Errorf("needs exactly one diff --git file section, found %d; make one fixture per file", n)
 	}
 	h := map[string]string{}
+	var hunks []string
 	started := false
-	for _, l := range lines {
+	for i, l := range lines {
 		if strings.HasPrefix(l, "diff --git ") {
 			started = true
-			continue
 		}
 		if !started {
 			continue
 		}
 		if strings.HasPrefix(l, "@@") {
+			hunks = lines[i:]
 			break
+		}
+		if strings.HasSuffix(l, "\r") {
+			return "", errors.New("has a header line that ends in a carriage return; save the patch with LF line endings")
 		}
 		if strings.HasPrefix(l, "Binary files ") || l == "GIT binary patch" {
 			return "", errors.New("binary patches are not supported")
@@ -290,46 +298,103 @@ func patchPath(patch string) (string, error) {
 			}
 		}
 	}
-	minus, hasMinus := h["--- "]
-	plus, hasPlus := h["+++ "]
-	to, hasTo := h["rename to "]
-	if _, hasFrom := h["rename from "]; hasFrom != hasTo {
-		return "", errors.New("needs both rename from and rename to")
-	}
-	var path string
-	var err error
-	switch {
-	case hasMinus != hasPlus:
-		return "", errors.New("needs both a --- and a +++ line")
-	case hasPlus && plus == "/dev/null" && minus == "/dev/null":
-		return "", errors.New("has /dev/null on both sides")
-	case hasPlus && plus == "/dev/null":
-		path, err = decodePath(minus, "a/")
-	case hasPlus:
-		if minus != "/dev/null" {
-			if _, err := decodePath(minus, "a/"); err != nil {
-				return "", err
-			}
-		}
-		path, err = decodePath(plus, "b/")
-	case hasTo:
-		path, err = decodePath(to, "")
-	default:
-		return "", errors.New("has no ---/+++ or rename lines; binary, mode-only, and other formats are not supported")
-	}
-	if err != nil {
+	if err := checkHunks(hunks); err != nil {
 		return "", err
 	}
-	if hasTo {
-		if renamed, err := decodePath(to, ""); err != nil || renamed != path {
-			return "", errors.New("its rename to line and its +++ line disagree")
+	_, hasMinus := h["--- "]
+	_, hasPlus := h["+++ "]
+	_, hasFrom := h["rename from "]
+	_, hasTo := h["rename to "]
+	switch {
+	case hasFrom != hasTo:
+		return "", errors.New("needs both rename from and rename to")
+	case hasMinus != hasPlus:
+		return "", errors.New("needs both a --- and a +++ line")
+	case !hasPlus && !hasTo:
+		return "", errors.New("has no ---/+++ or rename lines; binary, mode-only, and other formats are not supported")
+	}
+	// Every path header is decoded and checked, even the ones that are not sent.
+	paths := map[string]string{}
+	for _, key := range []string{"--- ", "+++ ", "rename from ", "rename to "} {
+		v, ok := h[key]
+		prefix := map[string]string{"--- ": "a/", "+++ ": "b/"}[key]
+		if !ok || v == "/dev/null" && prefix != "" {
+			continue
+		}
+		path, err := decodePath(v, prefix)
+		if err != nil {
+			return "", err
+		}
+		if path == "" || strings.ContainsRune(path, 0) || strings.HasPrefix(path, "/") || !utf8.ValidString(path) ||
+			slices.Contains(strings.Split(path, "/"), "..") {
+			return "", fmt.Errorf("has an unsafe or unsupported path %q", path)
+		}
+		paths[key] = path
+	}
+	oldPath, newPath := paths["--- "], paths["+++ "]
+	switch {
+	case hasPlus && oldPath == "" && newPath == "":
+		return "", errors.New("has /dev/null on both sides")
+	case hasTo && hasPlus && (paths["rename from "] != oldPath || paths["rename to "] != newPath):
+		return "", errors.New("its rename lines and its ---/+++ lines disagree")
+	case !hasTo && oldPath != "" && newPath != "" && oldPath != newPath:
+		return "", errors.New("its --- and +++ lines name different paths without rename lines")
+	}
+	return cmp.Or(newPath, oldPath, paths["rename to "]), nil
+}
+
+// checkHunks follows each hunk's line counts, so a --- or +++ line after a hunk ends
+// is found as a second file section without its own diff --git line.
+func checkHunks(lines []string) error {
+	oldLeft, newLeft := 0, 0
+	for _, l := range lines {
+		switch {
+		case oldLeft > 0 || newLeft > 0:
+			switch {
+			case strings.HasPrefix(l, "-"):
+				oldLeft--
+			case strings.HasPrefix(l, "+"):
+				newLeft--
+			case strings.HasPrefix(l, `\`):
+			default:
+				oldLeft--
+				newLeft--
+			}
+			if oldLeft < 0 || newLeft < 0 {
+				return errors.New("has a hunk longer than its @@ header says")
+			}
+		case strings.HasPrefix(l, "@@"):
+			f := strings.Fields(l)
+			if len(f) < 4 || f[0] != "@@" || f[3] != "@@" {
+				return errors.New("has an invalid @@ hunk header")
+			}
+			var err error
+			if oldLeft, err = hunkCount(f[1], "-"); err == nil {
+				newLeft, err = hunkCount(f[2], "+")
+			}
+			if err != nil {
+				return err
+			}
+		case strings.HasPrefix(l, "--- ") || strings.HasPrefix(l, "+++ "):
+			return errors.New("has a second file section without a diff --git line; make one fixture per file")
 		}
 	}
-	if path == "" || strings.ContainsRune(path, 0) || strings.HasPrefix(path, "/") || !utf8.ValidString(path) ||
-		slices.Contains(strings.Split(path, "/"), "..") {
-		return "", fmt.Errorf("has an unsafe or unsupported path %q", path)
+	return nil
+}
+
+// hunkCount returns the line count of one @@ range, such as -3,4 or +5 (one line).
+func hunkCount(field, sign string) (int, error) {
+	field, ok := strings.CutPrefix(field, sign)
+	start, count, hasCount := strings.Cut(field, ",")
+	if !hasCount {
+		count = "1"
 	}
-	return path, nil
+	_, startErr := strconv.Atoi(start)
+	n, err := strconv.Atoi(count)
+	if !ok || startErr != nil || err != nil || n < 0 {
+		return 0, errors.New("has an invalid @@ hunk header")
+	}
+	return n, nil
 }
 
 // decodePath decodes one path field of a git header and strips its a/ or b/ prefix.
@@ -338,6 +403,20 @@ func patchPath(patch string) (string, error) {
 func decodePath(field, prefix string) (string, error) {
 	field = strings.TrimSuffix(field, "\t")
 	if strings.HasPrefix(field, `"`) {
+		// Git writes only C escapes and three-digit octal bytes, fewer than strconv.Unquote accepts.
+		for i := 0; i < len(field); i++ {
+			if field[i] != '\\' {
+				continue
+			}
+			i++
+			switch {
+			case i < len(field) && strings.IndexByte(`abtnvfr"\`, field[i]) >= 0:
+			case i+3 <= len(field) && strings.Trim(field[i:i+3], "01234567") == "":
+				i += 2
+			default:
+				return "", errors.New("has an invalid quoted path")
+			}
+		}
 		unquoted, err := strconv.Unquote(field)
 		if err != nil {
 			return "", errors.New("has an invalid quoted path")
