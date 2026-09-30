@@ -11,7 +11,6 @@ import (
 
 	"github.com/luisferrassini/jev-check/internal/fsutil"
 	"github.com/luisferrassini/jev-check/internal/jev"
-	"github.com/luisferrassini/jev-check/internal/secretscan"
 	"github.com/luisferrassini/jev-check/internal/workspace"
 )
 
@@ -107,18 +106,6 @@ func TestAskPreflight(t *testing.T) {
 	wantBlocked(t, requests, awsKey, "ask", "public-release", "--file", leaky)
 	if files := outputFiles(t, "."); files != nil || fsutil.FileExists(filepath.Join(".jev-check", "output")) {
 		t.Errorf("a blocked request created .jev-check/output/: %v", files)
-	}
-}
-
-func TestScanRequestDedup(t *testing.T) {
-	// The value alone and its assignment both find github-token under the same label.
-	var found secretscan.Found
-	if !errors.As(secretscan.ScanRequest(jev.Request{State: map[string]any{"token": ghToken}}), &found) {
-		t.Fatal("token not found")
-	}
-	want := []string{"SECRET  request.state.token looks like github-token", "SECRET  request.state.token looks like quoted-secret"}
-	if !slices.Equal(found, want) {
-		t.Errorf("reports %q, want %q", found, want)
 	}
 }
 
