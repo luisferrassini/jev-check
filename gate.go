@@ -300,19 +300,19 @@ func validateChecks(project string, checks []gateCheck) ([]map[string]json.RawMe
 		if c.Threshold == nil || *c.Threshold < 0 || *c.Threshold > 1 {
 			return nil, fmt.Errorf("check %s needs a threshold from 0 to 1", c.Check)
 		}
-		_, questions, _, err := loadCheck(project, c.Check)
+		loaded, err := findCheck(project, c.Check)
 		if err != nil {
 			return nil, err
 		}
 		for id, t := range c.PerQuestion {
-			if _, ok := questions[id]; !ok {
+			if _, ok := loaded.questions[id]; !ok {
 				return nil, fmt.Errorf("check %s has no question %s", c.Check, id)
 			}
 			if t < 0 || t > 1 {
 				return nil, fmt.Errorf("check %s: threshold for %s must be from 0 to 1", c.Check, id)
 			}
 		}
-		all = append(all, questions)
+		all = append(all, loaded.questions)
 	}
 	return all, nil
 }

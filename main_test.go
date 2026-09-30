@@ -410,14 +410,14 @@ func TestInvalidAnswers(t *testing.T) {
 	for _, q := range []string{"english_only", "no_personal_info", "no_outside_paths", "no_private_links", "no_third_party_content", "belongs_in_project"} {
 		writeFile(t, filepath.Join(repo, ".jev-check/fixtures/public-release/fail", q, "x.patch"), gitPatch(t, "x", "hello\n"))
 	}
-	_, questions, _, err := loadCheck(repo, "public-release")
+	c, err := findCheck(repo, "public-release")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, bad := range []string{`{}`, `null`, `{"type":"choice","choice":"yes"}`, `{"type":"noul"}`, `{"type":"noul","noul":null}`, `{"type":"noul","noul":1.1}`, `{"type":"noul","noul":-0.1}`} {
 		t.Run(bad, func(t *testing.T) {
 			answers := map[string]json.RawMessage{}
-			for id := range questions {
+			for id := range c.questions {
 				answers[id] = json.RawMessage(`{"type":"noul","noul":0.9}`)
 			}
 			answers["english_only"] = json.RawMessage(bad)
@@ -453,7 +453,7 @@ func TestInvalidAnswers(t *testing.T) {
 	}
 	// Zero is a valid probability, unlike an omitted or null noul value.
 	answers := map[string]json.RawMessage{}
-	for id := range questions {
+	for id := range c.questions {
 		answers[id] = json.RawMessage(`{"type":"noul","noul":0}`)
 	}
 	raw, err := json.Marshal(map[string]any{"answers": answers})

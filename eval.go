@@ -2,12 +2,10 @@ package main
 
 import (
 	"cmp"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -86,15 +84,7 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 		return 0, err
 	}
 	// Only yes/no questions have thresholds, so each needs its own fail fixtures.
-	var blocking []string
-	for _, id := range slices.Sorted(maps.Keys(questions[0])) {
-		var q struct {
-			Type string `json:"type"`
-		}
-		if json.Unmarshal(questions[0][id], &q) == nil && q.Type == "noul" {
-			blocking = append(blocking, id)
-		}
-	}
+	blocking := noulIDs(questions[0])
 	if len(blocking) == 0 {
 		return 0, fmt.Errorf("check %s has no yes/no (noul) question, so there is no threshold to evaluate", name)
 	}
