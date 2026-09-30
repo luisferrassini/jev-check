@@ -126,8 +126,8 @@ func modelFlag(args []string, i int) (string, error) {
 const doctorUsage = `Usage: jev-check doctor [DIR]   (default: .)
 Prints the settings jev-check would use for DIR and any setup problem, without
 calling the API: the settings file DIR/.jev-check/.env, the endpoint, the model,
-whether the API key is set (never its value), DIR/.jev-check/project-context.json,
-no old DIR/project-context.json, and whether DIR is a git working tree with a
+whether the API key is set (never its value), DIR/.jev-check/config.json,
+no old DIR/project-context.json or DIR/.jev-check/project-context.json, and whether DIR is a git working tree with a
 writable DIR/.jev-check/output/ folder.
 Exit 0 when every line is ok, 1 when the model looks like a secret, 2 on a problem.
 `
@@ -200,8 +200,10 @@ func doctorCmd(args []string, stdout, _ io.Writer) (int, error) {
 	}
 	line("project", config, err)
 	// With no new config, loadProject already reported the old one.
-	if old := filepath.Join(dir, "project-context.json"); fileExists(old) && fileExists(config) {
-		line("old layout", "", fmt.Errorf("%s is ignored; delete it or move it over %s", old, config))
+	for _, old := range []string{filepath.Join(dir, "project-context.json"), filepath.Join(dir, jevDir, "project-context.json")} {
+		if fileExists(old) && fileExists(config) {
+			line("old layout", "", fmt.Errorf("%s is ignored; delete it or move it over %s", old, config))
+		}
 	}
 
 	out := filepath.Join(dir, jevDir, "output")

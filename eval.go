@@ -16,7 +16,7 @@ import (
 )
 
 const evalUsage = `Usage: jev-check eval <check> [DIR] [--no-cache] [--model ID]   (default DIR: .)
-Tests a check's thresholds in DIR/.jev-check/project-context.json against
+Tests a check's thresholds in DIR/.jev-check/config.json against
 DIR/.jev-check/fixtures/<check>/: every patch in pass/ must pass every yes/no
 question, and every patch in fail/<question>/ must fail that question. pass/ and fail/<question>/ for every
 yes/no question each need at least one patch. A probability at or above the

@@ -6,7 +6,7 @@ This folder holds everything [jev-check](https://github.com/luisferrassini/jev-c
 
 | Path | What it is | In Git |
 | --- | --- | --- |
-| `project-context.json` | The config: `purpose`, `rules`, `folders`, `exclude`, and the `checks` the gate runs, each with a `threshold`. | yes |
+| `config.json` | The config: `purpose`, `rules`, `folders`, `exclude`, and the `checks` the gate runs, each with a `threshold`. | yes |
 | `input/questions/<check>.json` | The questions of each check. The gate sends exactly these to Jev. | yes |
 | `input/states/<check>.json` | An optional default state for `jev-check ask <check>`. The gate does not use it. | yes |
 | `fixtures/<check>/` | Optional pass and fail patches for `jev-check eval <check>`. | yes |
@@ -14,7 +14,7 @@ This folder holds everything [jev-check](https://github.com/luisferrassini/jev-c
 | `output/` | Saved requests and answers, and the gate cache in `output/cache/`. | no |
 | `.gitignore` | Keeps `.env` and `output/` out of Git. | yes |
 
-`input/questions/` holds the checks available. `jev-check init` put every bundled check there; keep, edit, or delete them, and add your own. The gate runs only the checks listed in `checks` in `project-context.json`. jev-check never runs a check that is not in `input/questions/`: the binary uses its bundled copies only as templates for `jev-check add` and `jev-check init`.
+`input/questions/` holds the checks available. `jev-check init` put every bundled check there; keep, edit, or delete them, and add your own. The gate runs only the checks listed in `checks` in `config.json`. jev-check never runs a check that is not in `input/questions/`: the binary uses its bundled copies only as templates for `jev-check add` and `jev-check init`.
 
 ## Common tasks
 
@@ -23,7 +23,7 @@ Run these from the project root.
 | Task | Command |
 | --- | --- |
 | See the checks here and which ones the gate runs | `jev-check list` |
-| Turn a check on | Add `{ "check": "<check>", "threshold": 0.5 }` to `checks` in `project-context.json`. The main README lists a calibrated threshold for each bundled check. |
+| Turn a check on | Add `{ "check": "<check>", "threshold": 0.5 }` to `checks` in `config.json`. The main README lists a calibrated threshold for each bundled check. |
 | Turn a check off | Remove its entry from `checks`. Delete its files too if you do not want it listed. |
 | Get back a deleted bundled check | `jev-check add <check>` |
 | Change a check | Edit `input/questions/<check>.json`. The next gate uses it and skips the cache for it. |
@@ -34,4 +34,4 @@ Run these from the project root.
 | Gate the staged changes | `jev-check gate` |
 | Test a check's thresholds on its fixtures | `jev-check eval <check>` |
 
-Paths inside `project-context.json` (`exclude`, `skip`, `folders`, `coding_style`) are relative to the project root, not to this folder. Keep `.jev-check/` in `exclude`, so the gate does not judge these files.
+Paths inside `config.json` (`exclude`, `skip`, `folders`, `coding_style`) are relative to the project root, not to this folder. Keep `.jev-check/` in `exclude`, so the gate does not judge these files.

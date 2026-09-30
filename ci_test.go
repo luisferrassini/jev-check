@@ -41,14 +41,14 @@ func TestShippedChecksDryRun(t *testing.T) {
 }
 
 // TestShippedConfigs runs the gate with no staged files on this repository's
-// project-context.json and on the README's canonical example. Both must validate.
+// config.json and on the README's canonical example. Both must validate.
 func TestShippedConfigs(t *testing.T) {
 	requests := setup(t)
-	real, err := os.ReadFile(filepath.Join(sourceDir, bundleDir, "project-context.json"))
+	real, err := os.ReadFile(filepath.Join(sourceDir, bundleDir, "config.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, config := range map[string]string{"project-context.json": string(real), "README": readmeConfig(t)} {
+	for name, config := range map[string]string{"config.json": string(real), "README": readmeConfig(t)} {
 		repo := t.TempDir()
 		gitInit(t, repo)
 		writeFile(t, configPath(repo), config)

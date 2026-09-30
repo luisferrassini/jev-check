@@ -289,7 +289,7 @@ func TestGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	slices.Sort(state.Tree)
-	if fmt.Sprint(state.Project) != "map[purpose:Test project.]" || !slices.Equal(state.Tree, []string{".jev-check/project-context.json", "README.md", "app.py"}) {
+	if fmt.Sprint(state.Project) != "map[purpose:Test project.]" || !slices.Equal(state.Tree, []string{".jev-check/config.json", "README.md", "app.py"}) {
 		t.Errorf("context: %+v", state)
 	}
 
@@ -328,7 +328,7 @@ func TestGate(t *testing.T) {
 	}
 
 	writeFile(t, configPath(repo), `{ "checks": [{ "check": "public-release", "threshold": 0.2 }] }`)
-	gitRun(t, repo, "add", ".jev-check/project-context.json")
+	gitRun(t, repo, "add", ".jev-check/config.json")
 	if out := wantCode(t, 0, "gate", repo); !strings.HasSuffix(out, "gate: PASS\n") {
 		t.Errorf("gate output:\n%s", out)
 	}

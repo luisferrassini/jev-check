@@ -23,7 +23,7 @@ type about struct {
 	Folders map[string]string `json:"folders,omitempty"`
 }
 
-// project is a project-context.json.
+// project is a config.json.
 type project struct {
 	about
 	Exclude []string    `json:"exclude"`
@@ -32,7 +32,7 @@ type project struct {
 
 func contextCmd(args []string, stdout, _ io.Writer) (int, error) {
 	if len(args) > 0 && isHelp(args[0]) {
-		fmt.Fprint(stdout, `Usage: jev-check context [DIR]   reads DIR/.jev-check/project-context.json (default: .)
+		fmt.Fprint(stdout, `Usage: jev-check context [DIR]   reads DIR/.jev-check/config.json (default: .)
 Prints the project fields and tree that go with every request. When checks
 name a coding_style document, coding_styles maps each path to its contents
 once. A request holds only its own check's document, as state.coding_style.
@@ -67,18 +67,25 @@ once. A request holds only its own check's document, as state.coding_style.
 	return 0, writeJSON(stdout, state)
 }
 
-// configPath is dir's project-context.json.
-func configPath(dir string) string { return filepath.Join(dir, jevDir, "project-context.json") }
+// configPath is dir's config.json.
+func configPath(dir string) string { return filepath.Join(dir, jevDir, "config.json") }
 
-// loadProject reads dir's config. A config left at the project root is never read:
-// it is an error with the move steps, so its checks are not silently replaced.
+// loadProject reads dir's config. A config under an old name or at the project root
+// is never read: it is an error with the move steps, so its checks are not silently replaced.
 func loadProject(dir string) (project, error) {
 	var p project
 	err := readJSON(configPath(dir), &p)
-	if old := filepath.Join(dir, "project-context.json"); errors.Is(err, fs.ErrNotExist) && fileExists(old) {
+	if !errors.Is(err, fs.ErrNotExist) {
+		return p, err
+	}
+	if old := filepath.Join(dir, jevDir, "project-context.json"); fileExists(old) {
+		return p, fmt.Errorf(`%s is no longer read; jev-check reads %s. Rename it, in %s:
+  git mv .jev-check/project-context.json .jev-check/config.json`, old, configPath(dir), dir)
+	}
+	if old := filepath.Join(dir, "project-context.json"); fileExists(old) {
 		return p, fmt.Errorf(`%s is no longer read; jev-check reads %s. Move the jev-check files, in %s:
   mkdir -p .jev-check
-  git mv project-context.json .jev-check/
+  git mv project-context.json .jev-check/config.json
   git mv input .jev-check/      # only jev-check checks, if any
   git mv fixtures .jev-check/   # if any
 Old output/ can be deleted`, old, configPath(dir), dir)
@@ -122,19 +129,19 @@ func excludes(patterns []string) []string {
 
 const initUsage = `Usage: jev-check init [DIR]   (default: .)
 Sets up DIR/.jev-check/, creating each of these files that is missing:
-  project-context.json   the config, with the starting defaults
+  config.json            the config, with the starting defaults
   .gitignore             keeps .env and output/ out of Git
   README.md              what each file in .jev-check/ is for
   input/questions/, input/states/
                          the checks available: every bundled check when
                          input/questions/ is new, else the ones in "checks"
 DIR must be in a git working tree. The gate runs only the checks listed in
-"checks" in project-context.json, so add an entry there to turn one on.
+"checks" in config.json, so add an entry there to turn one on.
 A file that already exists is kept, never replaced, so running init again
 restores only what is missing and does not bring back a deleted check.
 `
 
-// initConfig is the starting project-context.json. Its defaults are this repository's, not a policy for every project.
+// initConfig is the starting config.json. Its defaults are this repository's, not a policy for every project.
 const initConfig = `{
   "purpose": "",
   "rules": [],

@@ -66,7 +66,7 @@ type answer struct {
 const listUsage = `Usage: jev-check list [DIR]   (default: .)
 Lists the checks in DIR/.jev-check/input/questions/, the checks available to
 ask, gate, and eval, then the bundled checks DIR does not have. Each check in
-the folder shows "gate <threshold>" when "checks" in project-context.json
+the folder shows "gate <threshold>" when "checks" in config.json
 lists it, else "not in checks". jev-check add <name> copies a bundled check
 into DIR/.jev-check/input/.
 `

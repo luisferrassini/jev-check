@@ -251,14 +251,14 @@ func TestInit(t *testing.T) {
 	writeSettings(t, fresh, fakeSettings)
 	writeFile(t, filepath.Join(fresh, ".jev-check", "output", "a.json"), "{}")
 	status, _ := exec.Command("git", "-C", fresh, "status", "--porcelain", "-uall").Output()
-	wantStatus := "?? .jev-check/.gitignore\n?? .jev-check/README.md\n"
+	wantStatus := "?? .jev-check/.gitignore\n?? .jev-check/README.md\n?? .jev-check/config.json\n"
 	for _, kind := range []string{"questions", "states"} {
 		files, _ := fs.Glob(bundled, bundleDir+"/input/"+kind+"/*.json")
 		for _, f := range files {
 			wantStatus += "?? .jev-check/input/" + kind + "/" + path.Base(f) + "\n"
 		}
 	}
-	if wantStatus += "?? .jev-check/project-context.json\n"; string(status) != wantStatus {
+	if string(status) != wantStatus {
 		t.Errorf("git status after init:\n%s\nwant:\n%s", status, wantStatus)
 	}
 	notDir := t.TempDir()
@@ -386,13 +386,22 @@ func TestOldLayout(t *testing.T) {
 	for _, args := range [][]string{{"gate", repo}, {"eval", "public-release", repo}, {"context", repo}} {
 		var stdout, stderr strings.Builder
 		if code := run(args, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), old) ||
-			!strings.Contains(stderr.String(), configPath(repo)) || !strings.Contains(stderr.String(), "git mv project-context.json .jev-check/") {
+			!strings.Contains(stderr.String(), configPath(repo)) || !strings.Contains(stderr.String(), "git mv project-context.json .jev-check/config.json") {
 			t.Errorf("%v: exit %d\n%s", args, code, stderr.String())
 		}
 	}
 	if len(*requests) != 0 || fileExists(filepath.Join(repo, "output")) || fileExists(filepath.Join(repo, ".jev-check", "output")) {
 		t.Errorf("old layout sent %d requests or wrote output", len(*requests))
 	}
+
+	// The old name inside .jev-check/ is never read either, and wins over a root config.
+	renamed := writeFile(t, filepath.Join(repo, ".jev-check", "project-context.json"), `{"checks":[{"check":"public-release","threshold":0.5}]}`)
+	var stdout, stderr strings.Builder
+	if code := run([]string{"gate", repo}, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), renamed) ||
+		!strings.Contains(stderr.String(), "git mv .jev-check/project-context.json .jev-check/config.json") || len(*requests) != 0 {
+		t.Errorf("gate: exit %d\n%s", code, stderr.String())
+	}
+	os.Remove(renamed)
 
 	// A root input/ is ignored, so the check in .jev-check/input/ is used.
 	writeFile(t, "input/questions/public-release.json", onlyQuestion)

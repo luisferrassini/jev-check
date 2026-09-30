@@ -18,7 +18,7 @@ import (
 
 const gateUsage = `Usage: jev-check gate [DIR] [--no-cache] [--model ID]   (default: .)
 Sends one patch per staged file to each check in
-DIR/.jev-check/project-context.json. Answers are cached for 24 hours in
+DIR/.jev-check/config.json. Answers are cached for 24 hours in
 DIR/.jev-check/output/cache/v2/, keyed by the endpoint and the whole request:
 model, questions, project fields, tree, patch, and coding_style. Any change misses; a threshold change does not. --no-cache
 always calls the API and saves the new answers.
@@ -34,7 +34,7 @@ patch skips that file.
 Exit 0 pass, 1 fail or a secret found, 2 usage or API error.
 `
 
-// gateCheck is one entry of "checks" in project-context.json.
+// gateCheck is one entry of "checks" in config.json.
 type gateCheck struct {
 	Check       string             `json:"check"`
 	Threshold   *float64           `json:"threshold"`

@@ -69,7 +69,7 @@ the default state, if the check has one, in DIR/.jev-check/input/states/.
 ask, gate, and eval read checks only from there, so edit the copies to change
 a check. A file that already exists is kept, never replaced. To take a newer
 bundled version, delete the copy and run add again. jev-check list shows the
-bundled checks. Add a check to .jev-check/project-context.json to gate on it.
+bundled checks. Add a check to .jev-check/config.json to gate on it.
 `
 
 func addCmd(args []string, stdout, _ io.Writer) (int, error) {
