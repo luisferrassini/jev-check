@@ -2,7 +2,6 @@ package main
 
 import (
 	"cmp"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,9 +9,11 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/luisferrassini/jev-check/internal/catalog"
 	"github.com/luisferrassini/jev-check/internal/gitcmd"
 	"github.com/luisferrassini/jev-check/internal/jev"
 	"github.com/luisferrassini/jev-check/internal/secretscan"
+	"github.com/luisferrassini/jev-check/internal/verdict"
 	"github.com/luisferrassini/jev-check/internal/workspace"
 )
 
@@ -70,7 +71,7 @@ func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	questions, err := validateChecks(dir, p.Checks)
+	questions, err := catalog.ValidateChecks(dir, p.Checks)
 	if err != nil {
 		return 0, fmt.Errorf("%s: %w", workspace.ConfigPath(dir), err)
 	}
@@ -160,7 +161,7 @@ func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 				continue
 			}
 			fmt.Fprintf(stdout, "== %s %s%s\n", c.Check, label(file), map[bool]string{true: " (cached)"}[cached])
-			if printVerdicts(stdout, res.Answers, *c.Threshold, c.PerQuestion) {
+			if verdict.PrintVerdicts(stdout, res.Answers, *c.Threshold, c.PerQuestion) {
 				status = max(status, 1)
 			}
 		}
@@ -168,34 +169,4 @@ func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 
 	fmt.Fprintln(stdout, "gate: "+[]string{"PASS", "FAIL", "ERROR"}[status])
 	return status, nil
-}
-
-// validateChecks checks the gate config before any API call and returns each check's questions.
-func validateChecks(project string, checks []workspace.GateCheck) ([]map[string]json.RawMessage, error) {
-	if len(checks) == 0 {
-		return nil, errors.New(`needs a "checks" list, each with "check" and "threshold"`)
-	}
-	var all []map[string]json.RawMessage
-	for _, c := range checks {
-		if !checkName.MatchString(c.Check) {
-			return nil, fmt.Errorf("check %q must be the name of a check (run jev-check list)", c.Check)
-		}
-		if c.Threshold == nil || *c.Threshold < 0 || *c.Threshold > 1 {
-			return nil, fmt.Errorf("check %s needs a threshold from 0 to 1", c.Check)
-		}
-		loaded, err := findCheck(project, c.Check)
-		if err != nil {
-			return nil, err
-		}
-		for id, t := range c.PerQuestion {
-			if _, ok := loaded.questions[id]; !ok {
-				return nil, fmt.Errorf("check %s has no question %s", c.Check, id)
-			}
-			if t < 0 || t > 1 {
-				return nil, fmt.Errorf("check %s: threshold for %s must be from 0 to 1", c.Check, id)
-			}
-		}
-		all = append(all, loaded.questions)
-	}
-	return all, nil
 }

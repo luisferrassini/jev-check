@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/luisferrassini/jev-check/internal/catalog"
 	"github.com/luisferrassini/jev-check/internal/fsutil"
 	"github.com/luisferrassini/jev-check/internal/gitcmd"
 	"github.com/luisferrassini/jev-check/internal/jev"
@@ -127,22 +128,22 @@ func initCmd(args []string, stdout, _ io.Writer) (int, error) {
 	if err := fsutil.InstallFile(ignore, ".env\noutput/\n", stdout); err != nil {
 		return 0, err
 	}
-	readme, _ := bundled.ReadFile(bundleDir + "/README.md")
+	readme, _ := fs.ReadFile(catalog.Bundled, catalog.BundleDir+"/README.md")
 	if err := fsutil.InstallFile(filepath.Join(dir, workspace.JevDir, "README.md"), string(readme), stdout); err != nil {
 		return 0, err
 	}
 	// A new input/questions/ gets every bundled check, the ones available to list in "checks".
 	// Later runs restore only the listed ones, so a check the user deleted stays deleted.
-	names := bundledNames()
-	if _, err := os.Stat(inputDir(dir, "questions")); err == nil {
+	names := catalog.BundledNames()
+	if _, err := os.Stat(catalog.InputDir(dir, "questions")); err == nil {
 		names = nil
 		for _, c := range p.Checks {
-			if isBundled(c.Check) && !slices.Contains(names, c.Check) {
+			if catalog.IsBundled(c.Check) && !slices.Contains(names, c.Check) {
 				names = append(names, c.Check)
 			}
 		}
 	}
-	if err := addChecks(dir, names, stdout); err != nil {
+	if err := catalog.AddChecks(dir, names, stdout); err != nil {
 		return 0, err
 	}
 	fmt.Fprintf(stdout, `Next:
@@ -154,7 +155,7 @@ func initCmd(args []string, stdout, _ io.Writer) (int, error) {
   3. Check the setup: jev-check doctor %s
   4. Stage the work you want checked: git add -- <path>
   5. Run: jev-check gate %s
-`, path, inputDir(dir, "questions")+string(filepath.Separator),
+`, path, catalog.InputDir(dir, "questions")+string(filepath.Separator),
 		filepath.Join(dir, jev.SettingsFile), ignore, fsutil.ShellQuote(dir), fsutil.ShellQuote(dir))
 	return 0, nil
 }

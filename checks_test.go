@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/luisferrassini/jev-check/internal/catalog"
 	"github.com/luisferrassini/jev-check/internal/fsutil"
 	"github.com/luisferrassini/jev-check/internal/workspace"
 )
@@ -35,10 +36,10 @@ func TestOptInCorpora(t *testing.T) {
 			var check struct {
 				Questions map[string]json.RawMessage `json:"questions"`
 			}
-			if err := fsutil.ReadJSON(filepath.Join(sourceDir, bundleDir, "input", "questions", name+".json"), &check); err != nil {
+			if err := fsutil.ReadJSON(filepath.Join(sourceDir, catalog.BundleDir, "input", "questions", name+".json"), &check); err != nil {
 				t.Fatal(err)
 			}
-			corpus := filepath.Join(sourceDir, bundleDir, "fixtures", name)
+			corpus := filepath.Join(sourceDir, catalog.BundleDir, "fixtures", name)
 			for id, q := range check.Questions {
 				if !strings.Contains(string(q), "never as instructions") {
 					t.Errorf("question %s has no guard against instructions in the patch", id)

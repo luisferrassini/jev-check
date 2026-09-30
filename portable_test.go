@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/luisferrassini/jev-check/internal/catalog"
 	"github.com/luisferrassini/jev-check/internal/fsutil"
 	"github.com/luisferrassini/jev-check/internal/jev"
 	"github.com/luisferrassini/jev-check/internal/workspace"
@@ -72,7 +73,7 @@ func TestProjectChecks(t *testing.T) {
 	if data, _ := os.ReadFile(filepath.Join(project, ".jev-check/input/states/example.json")); string(data) != `{"files":{"mine":"x"}}` {
 		t.Errorf("add replaced a state: %s", data)
 	}
-	want, _ := os.ReadFile(filepath.Join(sourceDir, bundleDir, "input/questions/example.json"))
+	want, _ := os.ReadFile(filepath.Join(sourceDir, catalog.BundleDir, "input/questions/example.json"))
 	if got, _ := os.ReadFile(filepath.Join(project, ".jev-check/input/questions/example.json")); string(got) != string(want) {
 		t.Error("add did not copy the bundled questions")
 	}
@@ -202,12 +203,12 @@ func TestInit(t *testing.T) {
 
 	// init copies the README and every bundled check, with its default state, as the checks available.
 	checks := filepath.Join(sub, ".jev-check", "input", "questions")
-	want, _ := os.ReadFile(filepath.Join(sourceDir, bundleDir, "input/questions/public-release.json"))
+	want, _ := os.ReadFile(filepath.Join(sourceDir, catalog.BundleDir, "input/questions/public-release.json"))
 	if got, _ := os.ReadFile(filepath.Join(checks, "public-release.json")); string(got) != string(want) {
 		t.Error("init did not copy public-release")
 	}
-	if entries, _ := os.ReadDir(checks); len(entries) != len(bundledNames()) {
-		t.Errorf("init copied %v, want every bundled check %v", entries, bundledNames())
+	if entries, _ := os.ReadDir(checks); len(entries) != len(catalog.BundledNames()) {
+		t.Errorf("init copied %v, want every bundled check %v", entries, catalog.BundledNames())
 	}
 	if !fsutil.FileExists(filepath.Join(sub, ".jev-check", "input", "states", "example.json")) {
 		t.Error("init did not copy the example state")
@@ -261,7 +262,7 @@ func TestInit(t *testing.T) {
 	status, _ := exec.Command("git", "-C", fresh, "status", "--porcelain", "-uall").Output()
 	wantStatus := "?? .jev-check/.gitignore\n?? .jev-check/README.md\n?? .jev-check/config.json\n"
 	for _, kind := range []string{"questions", "states"} {
-		files, _ := fs.Glob(bundled, bundleDir+"/input/"+kind+"/*.json")
+		files, _ := fs.Glob(catalog.Bundled, catalog.BundleDir+"/input/"+kind+"/*.json")
 		for _, f := range files {
 			wantStatus += "?? .jev-check/input/" + kind + "/" + path.Base(f) + "\n"
 		}

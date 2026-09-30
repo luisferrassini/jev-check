@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/luisferrassini/jev-check/internal/catalog"
 	"github.com/luisferrassini/jev-check/internal/fsutil"
 	"github.com/luisferrassini/jev-check/internal/jev"
 	"github.com/luisferrassini/jev-check/internal/secretscan"
@@ -53,7 +54,7 @@ func setup(t *testing.T) *[]jev.Request {
 // addBundled copies every bundled check into dir/.jev-check/input/, as jev-check add does.
 func addBundled(t *testing.T, dir string) {
 	t.Helper()
-	if err := addChecks(dir, bundledNames(), io.Discard); err != nil {
+	if err := catalog.AddChecks(dir, catalog.BundledNames(), io.Discard); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -415,14 +416,14 @@ func TestInvalidAnswers(t *testing.T) {
 	for _, q := range []string{"english_only", "no_personal_info", "no_outside_paths", "no_private_links", "no_third_party_content", "belongs_in_project"} {
 		writeFile(t, filepath.Join(repo, ".jev-check/fixtures/public-release/fail", q, "x.patch"), gitPatch(t, "x", "hello\n"))
 	}
-	c, err := findCheck(repo, "public-release")
+	c, err := catalog.FindCheck(repo, "public-release")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, bad := range []string{`{}`, `null`, `{"type":"choice","choice":"yes"}`, `{"type":"noul"}`, `{"type":"noul","noul":null}`, `{"type":"noul","noul":1.1}`, `{"type":"noul","noul":-0.1}`} {
 		t.Run(bad, func(t *testing.T) {
 			answers := map[string]json.RawMessage{}
-			for id := range c.questions {
+			for id := range c.Questions {
 				answers[id] = json.RawMessage(`{"type":"noul","noul":0.9}`)
 			}
 			answers["english_only"] = json.RawMessage(bad)
@@ -458,7 +459,7 @@ func TestInvalidAnswers(t *testing.T) {
 	}
 	// Zero is a valid probability, unlike an omitted or null noul value.
 	answers := map[string]json.RawMessage{}
-	for id := range c.questions {
+	for id := range c.Questions {
 		answers[id] = json.RawMessage(`{"type":"noul","noul":0}`)
 	}
 	raw, err := json.Marshal(map[string]any{"answers": answers})

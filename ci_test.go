@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/luisferrassini/jev-check/internal/catalog"
 	"github.com/luisferrassini/jev-check/internal/fsutil"
 	"github.com/luisferrassini/jev-check/internal/jev"
 	"github.com/luisferrassini/jev-check/internal/workspace"
@@ -16,7 +17,7 @@ import (
 // and requires a valid request with no call to the API.
 func TestShippedChecksDryRun(t *testing.T) {
 	requests := setup(t)
-	names, err := filepath.Glob(filepath.Join(sourceDir, bundleDir, "input/questions/*.json"))
+	names, err := filepath.Glob(filepath.Join(sourceDir, catalog.BundleDir, "input/questions/*.json"))
 	if err != nil || len(names) == 0 {
 		t.Fatalf("no shipped checks: %v", err)
 	}
@@ -28,7 +29,7 @@ func TestShippedChecksDryRun(t *testing.T) {
 			t.Errorf("list does not show %s:\n%s", name, list)
 		}
 		args := []string{"ask", "--dry-run", name}
-		if !fsutil.FileExists(filepath.Join(sourceDir, bundleDir, "input/states", name+".json")) {
+		if !fsutil.FileExists(filepath.Join(sourceDir, catalog.BundleDir, "input/states", name+".json")) {
 			args = append(args, "--file", input)
 		}
 		var req jev.Request
@@ -48,7 +49,7 @@ func TestShippedChecksDryRun(t *testing.T) {
 // config.json and on the README's canonical example. Both must validate.
 func TestShippedConfigs(t *testing.T) {
 	requests := setup(t)
-	real, err := os.ReadFile(filepath.Join(sourceDir, bundleDir, "config.json"))
+	real, err := os.ReadFile(filepath.Join(sourceDir, catalog.BundleDir, "config.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

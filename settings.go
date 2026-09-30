@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/luisferrassini/jev-check/internal/catalog"
 	"github.com/luisferrassini/jev-check/internal/fsutil"
 	"github.com/luisferrassini/jev-check/internal/gitcmd"
 	"github.com/luisferrassini/jev-check/internal/jev"
@@ -91,7 +92,7 @@ func doctorCmd(args []string, stdout, _ io.Writer) (int, error) {
 	config := workspace.ConfigPath(dir)
 	p, err := workspace.LoadProject(dir)
 	if err == nil {
-		_, err = validateChecks(dir, p.Checks)
+		_, err = catalog.ValidateChecks(dir, p.Checks)
 	}
 	if err == nil {
 		_, _, err = workspace.LoadStyles(dir, p.Checks)

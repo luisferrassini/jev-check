@@ -9,13 +9,14 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
+	"github.com/luisferrassini/jev-check/internal/catalog"
 	"github.com/luisferrassini/jev-check/internal/fsutil"
 	"github.com/luisferrassini/jev-check/internal/jev"
 	"github.com/luisferrassini/jev-check/internal/secretscan"
+	"github.com/luisferrassini/jev-check/internal/verdict"
 	"github.com/luisferrassini/jev-check/internal/workspace"
 )
 
@@ -41,9 +42,6 @@ A finding prints SECRET lines instead, and nothing is sent or saved.
 Exit codes: 0 ok, 1 below threshold or a secret found, 2 usage or API error.
 `
 
-// A check name is a plain word, so it cannot reach files outside input/.
-var checkName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
-
 const listUsage = `Usage: jev-check list [DIR]   (default: .)
 Lists the checks in DIR/.jev-check/input/questions/, the checks available to
 ask, gate, and eval, then the bundled checks DIR does not have. Each check in
@@ -65,7 +63,7 @@ func listCmd(args []string, stdout, _ io.Writer) (int, error) {
 	if info, err := os.Stat(project); err != nil || !info.IsDir() {
 		return 0, fmt.Errorf("%s is not a folder", project)
 	}
-	entries, err := os.ReadDir(inputDir(project, "questions"))
+	entries, err := os.ReadDir(catalog.InputDir(project, "questions"))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return 0, err
 	}
@@ -77,10 +75,10 @@ func listCmd(args []string, stdout, _ io.Writer) (int, error) {
 		if !ok {
 			continue
 		}
-		if !checkName.MatchString(name) {
-			return 0, fmt.Errorf("%s: check names use only letters, digits, - and _", inputPath(project, "questions", name))
+		if !catalog.CheckName.MatchString(name) {
+			return 0, fmt.Errorf("%s: check names use only letters, digits, - and _", catalog.InputPath(project, "questions", name))
 		}
-		c, err := findCheck(project, name)
+		c, err := catalog.FindCheck(project, name)
 		if err != nil {
 			return 0, err
 		}
@@ -91,17 +89,17 @@ func listCmd(args []string, stdout, _ io.Writer) (int, error) {
 				tag = fmt.Sprintf("project, gate %g", *p.Checks[i].Threshold)
 			}
 		}
-		if c.state != nil {
+		if c.State != nil {
 			tag += ", has default state"
 		} else {
 			tag += ", needs --file"
 		}
-		printCheck(stdout, name, tag, c.raw)
+		printCheck(stdout, name, tag, c.Raw)
 		have = append(have, name)
 	}
-	for _, name := range bundledNames() {
+	for _, name := range catalog.BundledNames() {
 		if !slices.Contains(have, name) {
-			data, _ := bundled.ReadFile(bundledPath("questions", name))
+			data, _ := fs.ReadFile(catalog.Bundled, catalog.BundledPath("questions", name))
 			printCheck(stdout, name, "bundled, not added: jev-check add "+name, data)
 		}
 	}
@@ -141,7 +139,7 @@ func askCmd(args []string, stdout, _ io.Writer) (int, error) {
 			case "--file":
 				files = append(files, args[i])
 			case "--threshold":
-				t, err := parseThreshold(args[i])
+				t, err := verdict.ParseThreshold(args[i])
 				if err != nil {
 					return 0, err
 				}
@@ -167,17 +165,17 @@ func askCmd(args []string, stdout, _ io.Writer) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	c, err := findCheck(project, positional[0])
+	c, err := catalog.FindCheck(project, positional[0])
 	if err != nil {
 		return 0, err
 	}
-	name := c.name
+	name := c.Name
 	state := map[string]any{}
 	switch {
 	case len(positional) == 2:
 		err = fsutil.ReadJSON(positional[1], &state)
-	case c.state != nil:
-		if err = json.Unmarshal(c.state, &state); err != nil {
+	case c.State != nil:
+		if err = json.Unmarshal(c.State, &state); err != nil {
 			err = fmt.Errorf("invalid JSON in the default state of %s: %w", name, err)
 		}
 	case len(files) == 0:
@@ -204,7 +202,7 @@ func askCmd(args []string, stdout, _ io.Writer) (int, error) {
 		stateFiles[path] = string(content)
 	}
 
-	req := jev.Request{Model: cfg.Model, Questions: c.questions, State: state}
+	req := jev.Request{Model: cfg.Model, Questions: c.Questions, State: state}
 	if err := secretscan.ScanRequest(req); err != nil {
 		return 0, err
 	}
@@ -215,62 +213,10 @@ func askCmd(args []string, stdout, _ io.Writer) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	failed := printVerdicts(stdout, res.Answers, threshold, nil)
+	failed := verdict.PrintVerdicts(stdout, res.Answers, threshold, nil)
 	fmt.Fprintf(stdout, "model: %s  saved: %s\n", res.Model, saved)
 	if failed {
 		return 1, nil
 	}
 	return 0, nil
-}
-
-// check is a loaded check. path names the question file in errors, raw holds its bytes,
-// and state is its default state, nil when there is none.
-type check struct {
-	name, path string
-	raw, state []byte
-	questions  map[string]json.RawMessage
-}
-
-// findCheck reads a check by path, or by name from project/.jev-check/input/questions/<name>.json
-// with its optional default state from input/states/. It never reads the bundle: a project runs
-// only the checks it holds.
-func findCheck(project, arg string) (check, error) {
-	c := check{name: strings.TrimSuffix(filepath.Base(arg), ".json"), path: arg}
-	var err error
-	switch {
-	case strings.HasSuffix(arg, ".json"):
-		c.raw, err = os.ReadFile(arg)
-	case !checkName.MatchString(arg):
-		return c, errors.New("check names use only letters, digits, - and _")
-	default:
-		c.path = inputPath(project, "questions", arg)
-		if c.raw, err = os.ReadFile(c.path); err == nil {
-			c.state, err = os.ReadFile(inputPath(project, "states", arg))
-			if errors.Is(err, fs.ErrNotExist) {
-				err = nil
-			}
-		}
-	}
-	if errors.Is(err, fs.ErrNotExist) && c.path != arg {
-		return c, missingCheck(project, c.name)
-	} else if errors.Is(err, fs.ErrNotExist) {
-		return c, fmt.Errorf("no check file %s", arg)
-	} else if err != nil {
-		return c, err
-	}
-	c.questions, err = parseQuestions(c.path, c.raw)
-	return c, err
-}
-
-func parseQuestions(path string, data []byte) (map[string]json.RawMessage, error) {
-	var check struct {
-		Questions map[string]json.RawMessage `json:"questions"`
-	}
-	if err := json.Unmarshal(data, &check); err != nil {
-		return nil, fmt.Errorf("invalid JSON in %s: %w", path, err)
-	}
-	if len(check.Questions) == 0 {
-		return nil, fmt.Errorf(`%s needs a non-empty "questions" object`, path)
-	}
-	return check.Questions, nil
 }

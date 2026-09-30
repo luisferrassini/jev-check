@@ -5,66 +5,20 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
-	"slices"
 	"strings"
 
-	"github.com/luisferrassini/jev-check/internal/fsutil"
-	"github.com/luisferrassini/jev-check/internal/workspace"
+	"github.com/luisferrassini/jev-check/internal/catalog"
 )
-
-// bundleDir is where this repository keeps the published checks. It is tracked,
-// unlike the repository's own .jev-check/, so a clone can build the bundle.
-const bundleDir = ".jev-check-example"
 
 // bundled holds the published checks and the README that init writes. A project never
 // runs them from here: add and init copy them into the project's .jev-check/input/.
 //
 //go:embed .jev-check-example/input/questions/*.json .jev-check-example/input/states/*.json .jev-check-example/README.md
-var bundled embed.FS
+var embedded embed.FS
 
-func bundledPath(kind, name string) string {
-	return bundleDir + "/input/" + kind + "/" + name + ".json"
-}
-
-// inputDir returns dir/.jev-check/input/<kind>, the folder that holds a project's checks or states.
-func inputDir(dir, kind string) string {
-	return filepath.Join(dir, workspace.JevDir, "input", kind)
-}
-
-// inputPath returns dir/.jev-check/input/<kind>/<name>.json.
-func inputPath(dir, kind, name string) string {
-	return filepath.Join(inputDir(dir, kind), name+".json")
-}
-
-// bundledNames returns the names of the bundled checks, sorted.
-func bundledNames() []string {
-	files, _ := fs.Glob(bundled, bundleDir+"/input/questions/*.json")
-	names := make([]string, len(files))
-	for i, f := range files {
-		names[i] = strings.TrimSuffix(path.Base(f), ".json")
-	}
-	slices.Sort(names)
-	return names
-}
-
-func isBundled(name string) bool { return slices.Contains(bundledNames(), name) }
-
-// missingCheck explains a named check that project/.jev-check/input/ does not hold.
-func missingCheck(project, name string) error {
-	file := inputPath(project, "questions", name)
-	if !isBundled(name) {
-		return fmt.Errorf("no check %q: %s does not exist (run jev-check list)", name, file)
-	}
-	add := "jev-check add " + name
-	if cwd, _ := filepath.Abs("."); cwd != project {
-		add = "jev-check add --dir " + fsutil.ShellQuote(project) + " " + name
-	}
-	return fmt.Errorf("no check %q: %s does not exist; copy the bundled one with: %s", name, file, add)
-}
+func init() { catalog.Bundled = embedded }
 
 const addUsage = `Usage: jev-check add [--dir DIR] <check>...   (default DIR: .)
 Copies bundled checks into DIR/.jev-check/input/questions/<check>.json, with
@@ -105,32 +59,5 @@ func addCmd(args []string, stdout, _ io.Writer) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	return 0, addChecks(dir, names, stdout)
-}
-
-// addChecks copies the named bundled checks into dir/.jev-check/input/, keeping any file already there.
-// It checks every name before it writes anything.
-func addChecks(dir string, names []string, stdout io.Writer) error {
-	for _, name := range names {
-		if !checkName.MatchString(name) {
-			return fmt.Errorf("%q: check names use only letters, digits, - and _", name)
-		}
-		if !isBundled(name) {
-			return fmt.Errorf("no bundled check %q (run jev-check list)", name)
-		}
-	}
-	for _, name := range names {
-		for _, kind := range []string{"questions", "states"} {
-			data, err := bundled.ReadFile(bundledPath(kind, name))
-			if errors.Is(err, fs.ErrNotExist) && kind == "states" {
-				continue
-			} else if err != nil {
-				return err
-			}
-			if err := fsutil.InstallFile(inputPath(dir, kind, name), string(data), stdout); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
+	return 0, catalog.AddChecks(dir, names, stdout)
 }

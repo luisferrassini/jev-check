@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/luisferrassini/jev-check/internal/catalog"
 	"github.com/luisferrassini/jev-check/internal/workspace"
 )
 
@@ -85,7 +86,7 @@ func TestMaintainabilityCorpus(t *testing.T) {
 	repo := t.TempDir()
 	gitInit(t, repo)
 	writeFile(t, workspace.ConfigPath(repo), `{"exclude":[".jev-check/fixtures/"],"checks":[{"check":"maintainability","threshold":0.5}]}`)
-	corpus := filepath.Join(sourceDir, bundleDir, "fixtures", "maintainability")
+	corpus := filepath.Join(sourceDir, catalog.BundleDir, "fixtures", "maintainability")
 	if err := os.CopyFS(filepath.Join(repo, ".jev-check", "fixtures", "maintainability"), os.DirFS(corpus)); err != nil {
 		t.Fatal(err)
 	}
