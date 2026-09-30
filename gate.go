@@ -44,6 +44,23 @@ type gateCheck struct {
 	CodingStyle json.RawMessage `json:"coding_style"`
 }
 
+// limit is the threshold for question q: its per_question value, else the check's threshold.
+func (c gateCheck) limit(q string) float64 {
+	if t, ok := c.PerQuestion[q]; ok {
+		return t
+	}
+	return *c.Threshold
+}
+
+// fileState is a copy of state with one file's patch and the check's coding_style document.
+// Each patch is named after its file, so the state key tells Jev which file it reads.
+func fileState(state map[string]any, file, patch, stylePath string, styles map[string]string) map[string]any {
+	out := maps.Clone(state)
+	out["files"] = map[string]string{file + ".patch": patch}
+	addStyle(out, stylePath, styles)
+	return out
+}
+
 func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	dir, model, noCache := "", "", false
 	for i := 0; i < len(args); i++ {
@@ -155,11 +172,8 @@ func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 			if !ok {
 				continue
 			}
-			// Each patch is named after its file, so the state key tells Jev which file it reads.
-			fileState := maps.Clone(state)
-			fileState["files"] = map[string]string{file + ".patch": patch}
-			addStyle(fileState, stylePaths[i], styles)
-			res, cached, err := cachedJev(dir, c.Check, cfg, request{Model: cfg.model, Questions: questions[i], State: fileState}, noCache, stderr)
+			req := request{Model: cfg.model, Questions: questions[i], State: fileState(state, file, patch, stylePaths[i], styles)}
+			res, cached, err := cachedJev(dir, c.Check, cfg, req, noCache, stderr)
 			var found secretsFound
 			switch {
 			case errors.As(err, &found):

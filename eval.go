@@ -124,10 +124,7 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 		if err != nil {
 			return 0, fmt.Errorf("%s: %w", printable(filepath.Join(fixtures, job.rel)), err)
 		}
-		fileState := maps.Clone(state)
-		fileState["files"] = map[string]string{file + ".patch": string(patch)}
-		addStyle(fileState, stylePaths[0], styles)
-		jobs[i].req = request{Model: cfg.model, Questions: questions[0], State: fileState}
+		jobs[i].req = request{Model: cfg.model, Questions: questions[0], State: fileState(state, file, string(patch), stylePaths[0], styles)}
 	}
 	// A secret in the shared document is reported once, not once per fixture.
 	var blocked []string
@@ -146,13 +143,6 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 		fmt.Fprintf(stdout, "%s\neval: BLOCKED, %s looks like it holds a secret; nothing was sent\n", strings.Join(blocked, "\n"), holder)
 		return 1, nil
 	}
-	limit := func(q string) float64 {
-		if t, ok := c.PerQuestion[q]; ok {
-			return t
-		}
-		return *c.Threshold
-	}
-
 	// A probability at or above its threshold passes, as in the gate.
 	misses, positives, negatives := 0, 0, map[string]int{}
 	lowestPass, highestFail := map[string]float64{}, map[string]float64{}
@@ -165,7 +155,7 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 			a := *res.Answers[job.question].Noul
 			negatives[job.question]++
 			highestFail[job.question] = max(highestFail[job.question], a)
-			if a >= limit(job.question) {
+			if a >= c.limit(job.question) {
 				fmt.Fprintf(stdout, "MISS  %s  %s  %s passes it\n", formatFloat(a), job.question, printable(job.rel))
 				misses++
 			}
@@ -177,7 +167,7 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 			if low, ok := lowestPass[q]; !ok || a < low {
 				lowestPass[q] = a
 			}
-			if a < limit(q) {
+			if a < c.limit(q) {
 				fmt.Fprintf(stdout, "MISS  %s  %s  %s fails it\n", formatFloat(a), q, printable(job.rel))
 				misses++
 			}
@@ -191,7 +181,7 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	// A question separates its fixtures when its highest fail is below its lowest pass.
 	fmt.Fprintln(stdout, "lowest-pass  highest-fail  threshold  question")
 	for _, q := range blocking {
-		fmt.Fprintf(stdout, "%-11s  %-12s  %-9s  %s\n", formatFloat(lowestPass[q]), formatFloat(highestFail[q]), formatFloat(limit(q)), q)
+		fmt.Fprintf(stdout, "%-11s  %-12s  %-9s  %s\n", formatFloat(lowestPass[q]), formatFloat(highestFail[q]), formatFloat(c.limit(q)), q)
 	}
 	fmt.Fprintf(stdout, "eval: %d misses in %d fixtures\n", misses, len(jobs))
 	return min(misses, 1), nil
