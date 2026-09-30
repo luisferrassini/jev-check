@@ -10,12 +10,13 @@ import (
 	"time"
 
 	"github.com/luisferrassini/jev-check/internal/fsutil"
+	"github.com/luisferrassini/jev-check/internal/jev"
 	"github.com/luisferrassini/jev-check/internal/workspace"
 )
 
 // cacheRepo makes a git project with one staged file and the public-release check,
 // and returns it with the path of its only cache entry after a first gate run.
-func cacheRepo(t *testing.T, requests *[]request) (string, string) {
+func cacheRepo(t *testing.T, requests *[]jev.Request) (string, string) {
 	t.Helper()
 	repo := t.TempDir()
 	gitInit(t, repo)
@@ -37,7 +38,7 @@ func onlyEntry(t *testing.T, repo string) string {
 }
 
 // gateCalls runs the gate and returns the number of requests it sent and whether it used the cache.
-func gateCalls(t *testing.T, requests *[]request, want int, args ...string) (int, bool) {
+func gateCalls(t *testing.T, requests *[]jev.Request, want int, args ...string) (int, bool) {
 	t.Helper()
 	before := len(*requests)
 	out := wantCode(t, want, append([]string{"gate"}, args...)...)
@@ -110,7 +111,7 @@ func TestCacheIdentity(t *testing.T) {
 	if n, cached := gateCalls(t, requests, 0, repo, "--model", "other"); n != 1 || cached || (*requests)[len(*requests)-1].Model != "other" {
 		t.Errorf("model change sent %d requests, cached %v", n, cached)
 	}
-	var second []request
+	var second []jev.Request
 	writeSettings(t, repo, "TYPESAFE_API_KEY=test\nJEV_CHECK_ENDPOINT="+fakeServer(t, &second)+"\n")
 	if n, cached := gateCalls(t, &second, 0, repo); n != 1 || cached {
 		t.Errorf("endpoint change sent %d requests, cached %v", n, cached)
@@ -126,9 +127,9 @@ func TestCacheIdentity(t *testing.T) {
 	// A state field no command sends yet is still part of the key.
 	before := len(*requests)
 	for _, v := range []string{"one", "two", "two"} {
-		req := request{Model: "m", Questions: map[string]json.RawMessage{"q": json.RawMessage(`{"type":"noul"}`)}, State: map[string]any{"future": v}}
-		settings, _ := loadSettings(repo, "")
-		if _, _, err := cachedJev(repo, "x", settings, req, false, io.Discard); err != nil {
+		req := jev.Request{Model: "m", Questions: map[string]json.RawMessage{"q": json.RawMessage(`{"type":"noul"}`)}, State: map[string]any{"future": v}}
+		settings, _ := jev.LoadSettings(repo, "")
+		if _, _, err := jev.CachedJev(repo, "x", settings, req, false, io.Discard); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -303,7 +304,7 @@ func TestCacheFresh(t *testing.T) {
 		0: true, time.Second: true, 24*time.Hour - time.Nanosecond: true,
 		24 * time.Hour: false, 25 * time.Hour: false, -time.Nanosecond: false,
 	} {
-		if got := fresh(now.Add(-age), now); got != want {
+		if got := jev.Fresh(now.Add(-age), now); got != want {
 			t.Errorf("age %v: fresh %v, want %v", age, got, want)
 		}
 	}

@@ -1,23 +1,20 @@
 package main
 
 import (
-	"bytes"
 	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
-	"maps"
-	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/luisferrassini/jev-check/internal/fsutil"
+	"github.com/luisferrassini/jev-check/internal/jev"
 	"github.com/luisferrassini/jev-check/internal/secretscan"
 	"github.com/luisferrassini/jev-check/internal/workspace"
 )
@@ -46,26 +43,6 @@ Exit codes: 0 ok, 1 below threshold or a secret found, 2 usage or API error.
 
 // A check name is a plain word, so it cannot reach files outside input/.
 var checkName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
-
-type request struct {
-	Model     string                     `json:"model"`
-	Questions map[string]json.RawMessage `json:"questions"`
-	State     map[string]any             `json:"state"`
-}
-
-type response struct {
-	Model   string            `json:"model"`
-	Answers map[string]answer `json:"answers"`
-}
-
-// answer is a noul (the probability that the answer is yes), a choice, or a score.
-type answer struct {
-	Type          string             `json:"type"`
-	Noul          *float64           `json:"noul"`
-	Choice        string             `json:"choice"`
-	Probabilities map[string]float64 `json:"probabilities"`
-	Score         any                `json:"score"`
-}
 
 const listUsage = `Usage: jev-check list [DIR]   (default: .)
 Lists the checks in DIR/.jev-check/input/questions/, the checks available to
@@ -186,7 +163,7 @@ func askCmd(args []string, stdout, _ io.Writer) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	cfg, err := loadSettings(project, model)
+	cfg, err := jev.LoadSettings(project, model)
 	if err != nil {
 		return 0, err
 	}
@@ -227,14 +204,14 @@ func askCmd(args []string, stdout, _ io.Writer) (int, error) {
 		stateFiles[path] = string(content)
 	}
 
-	req := request{Model: cfg.model, Questions: c.questions, State: state}
+	req := jev.Request{Model: cfg.Model, Questions: c.questions, State: state}
 	if err := secretscan.ScanRequest(req); err != nil {
 		return 0, err
 	}
 	if dryRun {
 		return 0, fsutil.WriteJSON(stdout, req)
 	}
-	res, saved, err := callJev(project, name, cfg, req)
+	res, saved, err := jev.CallJev(project, name, cfg, req)
 	if err != nil {
 		return 0, err
 	}
@@ -296,124 +273,4 @@ func parseQuestions(path string, data []byte) (map[string]json.RawMessage, error
 		return nil, fmt.Errorf(`%s needs a non-empty "questions" object`, path)
 	}
 	return check.Questions, nil
-}
-
-// noulIDs returns the sorted ids of the yes/no (noul) questions.
-func noulIDs(questions map[string]json.RawMessage) []string {
-	var ids []string
-	for _, id := range slices.Sorted(maps.Keys(questions)) {
-		var q struct {
-			Type string `json:"type"`
-		}
-		if json.Unmarshal(questions[id], &q) == nil && q.Type == "noul" {
-			ids = append(ids, id)
-		}
-	}
-	return ids
-}
-
-// validateAnswers rejects incomplete or invalid answers before they can pass a check.
-// Saved outputs without a request can still be checked for valid answer values.
-func validateAnswers(answers map[string]answer, questions map[string]json.RawMessage) error {
-	if len(answers) == 0 {
-		return errors.New("response needs a non-empty answers object")
-	}
-	for id, raw := range questions {
-		var question struct {
-			Type string `json:"type"`
-		}
-		if err := json.Unmarshal(raw, &question); err != nil || question.Type == "" {
-			return fmt.Errorf("question %s needs a type", id)
-		}
-		a, ok := answers[id]
-		if !ok || a.Type != question.Type {
-			return fmt.Errorf("question %s needs an answer of type %s", id, question.Type)
-		}
-	}
-	for id, a := range answers {
-		if questions != nil && questions[id] == nil {
-			return fmt.Errorf("unexpected answer %s", id)
-		}
-		switch a.Type {
-		case "noul":
-			if a.Noul == nil || !(*a.Noul >= 0 && *a.Noul <= 1) {
-				return fmt.Errorf("answer %s needs a noul number from 0 to 1", id)
-			}
-		case "choice":
-			probability, ok := a.Probabilities[a.Choice]
-			if !ok || !(probability >= 0 && probability <= 1) {
-				return fmt.Errorf("answer %s needs a choice with a probability from 0 to 1", id)
-			}
-		case "score":
-			if a.Score == nil {
-				return fmt.Errorf("answer %s needs a score", id)
-			}
-		default:
-			return fmt.Errorf("answer %s has unknown type %q", id, a.Type)
-		}
-	}
-	return nil
-}
-
-// callJev sends a request to cfg's endpoint and saves it, with the response, under project/.jev-check/output/.
-// It returns the response and the absolute saved path.
-func callJev(project, name string, cfg settings, req request) (response, string, error) {
-	var res response
-	// Every path to the API passes here, so nothing that looks like a secret is sent.
-	if err := secretscan.ScanRequest(req); err != nil {
-		return res, "", err
-	}
-	if cfg.key == "" {
-		return res, "", cfg.missingKey()
-	}
-	body, err := json.Marshal(req)
-	if err != nil {
-		return res, "", err
-	}
-	httpReq, err := http.NewRequest(http.MethodPost, cfg.endpoint, bytes.NewReader(body))
-	if err != nil {
-		return res, "", err
-	}
-	httpReq.Header.Set("Authorization", "Bearer "+cfg.key)
-	httpReq.Header.Set("Content-Type", "application/json")
-	// A redirect is returned as a 3xx error, so the key never follows it to another host.
-	client := &http.Client{Timeout: 120 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	httpRes, err := client.Do(httpReq)
-	if err != nil {
-		return res, "", fmt.Errorf("API call failed: %w", err)
-	}
-	defer httpRes.Body.Close()
-	raw, err := io.ReadAll(httpRes.Body)
-	if err != nil {
-		return res, "", fmt.Errorf("API call failed: %w", err)
-	}
-	if httpRes.StatusCode/100 != 2 {
-		return res, "", fmt.Errorf("API call failed: %s: %s", httpRes.Status, bytes.TrimSpace(raw))
-	}
-	if err := json.Unmarshal(raw, &res); err != nil || res.Answers == nil {
-		return res, "", fmt.Errorf("unexpected API response: %s", bytes.TrimSpace(raw))
-	}
-
-	if err := validateAnswers(res.Answers, req.Questions); err != nil {
-		return res, "", fmt.Errorf("unexpected API response: %w", err)
-	}
-
-	dir := filepath.Join(project, workspace.JevDir, "output")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return res, "", err
-	}
-	// CreateTemp adds a random suffix, so two runs in the same second never overwrite each other.
-	f, err := os.CreateTemp(dir, time.Now().Format("2006-01-02_15-04-05")+"-"+name+"-*.json")
-	if err != nil {
-		return res, "", err
-	}
-	defer f.Close()
-	err = fsutil.WriteJSON(f, struct {
-		Request  request         `json:"request"`
-		Response json.RawMessage `json:"response"`
-	}{req, raw})
-	if err == nil {
-		err = f.Close()
-	}
-	return res, f.Name(), err
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/luisferrassini/jev-check/internal/fsutil"
 	"github.com/luisferrassini/jev-check/internal/gitcmd"
+	"github.com/luisferrassini/jev-check/internal/jev"
 	"github.com/luisferrassini/jev-check/internal/workspace"
 )
 
@@ -49,7 +50,7 @@ func TestEvalCoverage(t *testing.T) {
 	repo, fixtures := evalProject(t, `{"check":"two","threshold":0.5}`)
 
 	// Missing sets are named together, before any request.
-	code, _ := jev(t, "eval", "two", repo)
+	code, _ := runCmd(t, "eval", "two", repo)
 	var stderr strings.Builder
 	run([]string{"eval", "two", repo}, &strings.Builder{}, &stderr)
 	for _, want := range []string{"pass/", "fail/q1/", "fail/q2/"} {
@@ -263,7 +264,7 @@ func TestEvalGateParity(t *testing.T) {
 	writeFile(t, filepath.Join(fixtures, "fail", "q1", "b.patch"), gitPatch(t, "bad-q1.go", "x\n"))
 	writeFile(t, filepath.Join(fixtures, "fail", "q2", "c.patch"), gitPatch(t, "bad-q2.go", "x\n"))
 	wantCode(t, 0, "eval", "two", repo, "--no-cache")
-	i := slices.IndexFunc((*requests)[1:], func(r request) bool { return r.State["files"].(map[string]any)["dir/a.go.patch"] != nil })
+	i := slices.IndexFunc((*requests)[1:], func(r jev.Request) bool { return r.State["files"].(map[string]any)["dir/a.go.patch"] != nil })
 	if i < 0 {
 		t.Fatal("eval sent no request for dir/a.go")
 	}

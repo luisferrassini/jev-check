@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/luisferrassini/jev-check/internal/fsutil"
+	"github.com/luisferrassini/jev-check/internal/jev"
 	"github.com/luisferrassini/jev-check/internal/workspace"
 )
 
@@ -19,7 +20,7 @@ const onlyQuestion = `{"questions":{"only":{"type":"noul","instructions":"Is it 
 
 func dryRunQuestions(t *testing.T, args ...string) []string {
 	t.Helper()
-	var req request
+	var req jev.Request
 	if err := json.Unmarshal([]byte(wantCode(t, 0, append([]string{"ask", "--dry-run"}, args...)...)), &req); err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +338,7 @@ func TestInstalledBinary(t *testing.T) {
 			t.Errorf("jev-check %v: exit %d\n%s", args, code, out)
 		}
 	}
-	if code, out := runBin(fresh, "jev-check", "ask", "example"); code != 2 || !strings.Contains(out, "set TYPESAFE_API_KEY in "+filepath.Join(fresh, settingsFile)) {
+	if code, out := runBin(fresh, "jev-check", "ask", "example"); code != 2 || !strings.Contains(out, "set TYPESAFE_API_KEY in "+filepath.Join(fresh, jev.SettingsFile)) {
 		t.Errorf("settings beside the binary were read: exit %d\n%s", code, out)
 	}
 	if len(*requests) != 0 {
@@ -376,7 +377,7 @@ func TestInstalledBinary(t *testing.T) {
 		t.Errorf("init with a full disk: exit %d, .jev-check left: %v\n%s", code, fsutil.FileExists(filepath.Join(repo, ".jev-check")), out)
 	}
 	writeSettings(t, repo, fakeSettings)
-	if code, out := initFull(); code != 2 || !strings.Contains(out, "writing ") || fsutil.FileExists(workspace.ConfigPath(repo)) || !fsutil.FileExists(filepath.Join(repo, settingsFile)) {
+	if code, out := initFull(); code != 2 || !strings.Contains(out, "writing ") || fsutil.FileExists(workspace.ConfigPath(repo)) || !fsutil.FileExists(filepath.Join(repo, jev.SettingsFile)) {
 		t.Errorf("init with a full disk: exit %d\n%s", code, out)
 	}
 }

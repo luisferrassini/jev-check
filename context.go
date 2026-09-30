@@ -14,6 +14,7 @@ import (
 
 	"github.com/luisferrassini/jev-check/internal/fsutil"
 	"github.com/luisferrassini/jev-check/internal/gitcmd"
+	"github.com/luisferrassini/jev-check/internal/jev"
 	"github.com/luisferrassini/jev-check/internal/secretscan"
 	"github.com/luisferrassini/jev-check/internal/workspace"
 )
@@ -154,6 +155,6 @@ func initCmd(args []string, stdout, _ io.Writer) (int, error) {
   4. Stage the work you want checked: git add -- <path>
   5. Run: jev-check gate %s
 `, path, inputDir(dir, "questions")+string(filepath.Separator),
-		filepath.Join(dir, settingsFile), ignore, fsutil.ShellQuote(dir), fsutil.ShellQuote(dir))
+		filepath.Join(dir, jev.SettingsFile), ignore, fsutil.ShellQuote(dir), fsutil.ShellQuote(dir))
 	return 0, nil
 }

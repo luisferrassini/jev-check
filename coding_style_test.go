@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/luisferrassini/jev-check/internal/jev"
 	"github.com/luisferrassini/jev-check/internal/workspace"
 )
 
@@ -28,7 +29,7 @@ func styleConfig(t *testing.T, repo, checks string) {
 }
 
 // sentStyles returns each request's coding_style, by check.
-func sentStyles(requests []request) map[string]any {
+func sentStyles(requests []jev.Request) map[string]any {
 	got := map[string]any{}
 	for _, req := range requests {
 		check := "public-release"

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/luisferrassini/jev-check/internal/jev"
 	"github.com/luisferrassini/jev-check/internal/workspace"
 )
 
@@ -111,7 +112,7 @@ func TestModelSetting(t *testing.T) {
 	project, _ := os.Getwd()
 	dryModel := func(args ...string) string {
 		t.Helper()
-		var req request
+		var req jev.Request
 		json.Unmarshal([]byte(wantCode(t, 0, append([]string{"ask", "--dry-run", "example"}, args...)...)), &req)
 		return req.Model
 	}
@@ -148,7 +149,7 @@ func TestModelSetting(t *testing.T) {
 		for _, args := range [][]string{append([]string{"gate", repo}, flag...), append([]string{"eval", "two", repo}, flag...)} {
 			*requests = nil
 			wantCode(t, 0, args...)
-			if len(*requests) == 0 || slices.ContainsFunc(*requests, func(r request) bool { return r.Model != c.want }) {
+			if len(*requests) == 0 || slices.ContainsFunc(*requests, func(r jev.Request) bool { return r.Model != c.want }) {
 				t.Errorf("jev-check %v sent %+v, want model %s", args, *requests, c.want)
 			}
 		}
@@ -315,7 +316,7 @@ func TestDoctor(t *testing.T) {
 	// The key never appears, and the doctor never calls the API.
 	var all strings.Builder
 	for _, args := range [][]string{{"doctor", repo}, {"doctor", "--help"}} {
-		_, out := jev(t, args...)
+		_, out := runCmd(t, args...)
 		all.WriteString(out)
 	}
 	if strings.Contains(all.String(), key) {

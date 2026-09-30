@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/luisferrassini/jev-check/internal/fsutil"
+	"github.com/luisferrassini/jev-check/internal/jev"
 	"github.com/luisferrassini/jev-check/internal/secretscan"
 	"github.com/luisferrassini/jev-check/internal/workspace"
 )
@@ -22,7 +23,7 @@ var (
 )
 
 // wantBlocked runs a command that must stop at the secret scan: exit 1, no request, no leaked value.
-func wantBlocked(t *testing.T, requests *[]request, leak string, args ...string) string {
+func wantBlocked(t *testing.T, requests *[]jev.Request, leak string, args ...string) string {
 	t.Helper()
 	before := len(*requests)
 	var stdout, stderr strings.Builder
@@ -112,7 +113,7 @@ func TestAskPreflight(t *testing.T) {
 func TestScanRequestDedup(t *testing.T) {
 	// The value alone and its assignment both find github-token under the same label.
 	var found secretscan.SecretsFound
-	if !errors.As(secretscan.ScanRequest(request{State: map[string]any{"token": ghToken}}), &found) {
+	if !errors.As(secretscan.ScanRequest(jev.Request{State: map[string]any{"token": ghToken}}), &found) {
 		t.Fatal("token not found")
 	}
 	want := []string{"SECRET  request.state.token looks like github-token", "SECRET  request.state.token looks like quoted-secret"}
@@ -124,7 +125,7 @@ func TestScanRequestDedup(t *testing.T) {
 func TestSecretsSafeLabel(t *testing.T) {
 	dir := t.TempDir()
 	patch := writeFile(t, filepath.Join(dir, "x\nSECRET  forged.patch"), "+"+awsKey+"\n")
-	code, out := jev(t, "secrets", patch)
+	code, out := runCmd(t, "secrets", patch)
 	if code != 1 || strings.Count(out, "\n") != 1 || strings.Contains(out, "forged") {
 		t.Errorf("exit %d:\n%s", code, out)
 	}
@@ -188,7 +189,7 @@ func TestGatePreflight(t *testing.T) {
 	writeFile(t, filepath.Join(repo, ".jev-check/input/questions/bad.json"), `{"questions":{"q":{"type":"noul","instructions":"`+ghToken+`"}}}`)
 	writeFile(t, workspace.ConfigPath(repo), `{"exclude":[".jev-check/input/"], "checks":[{"check":"bad","threshold":0.2},{"check":"public-release","threshold":0.2}]}`)
 	*requests = nil
-	code, out := jev(t, "gate", repo, "--no-cache")
+	code, out := runCmd(t, "gate", repo, "--no-cache")
 	if code != 1 || len(*requests) != 1 || strings.Contains(out, ghToken) || !strings.Contains(out, "== public-release a.txt") {
 		t.Errorf("exit %d, %d requests:\n%s", code, len(*requests), out)
 	}
@@ -198,7 +199,7 @@ func TestGatePreflight(t *testing.T) {
 	writeFile(t, workspace.ConfigPath(repo), `{"exclude":[".jev-check/input/"], "checks":[{"check":"public-release","threshold":0.2},{"check":"down","threshold":0.2}]}`)
 	writeFile(t, filepath.Join(repo, "b.txt"), "aws = "+awsKey+"\n")
 	gitRun(t, repo, "add", "b.txt")
-	if code, out := jev(t, "gate", repo, "--no-cache"); code != 2 || strings.Contains(out, awsKey) || !strings.HasSuffix(out, "gate: ERROR\n") {
+	if code, out := runCmd(t, "gate", repo, "--no-cache"); code != 2 || strings.Contains(out, awsKey) || !strings.HasSuffix(out, "gate: ERROR\n") {
 		t.Errorf("exit %d:\n%s", code, out)
 	}
 }

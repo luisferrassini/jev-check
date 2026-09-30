@@ -14,6 +14,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/luisferrassini/jev-check/internal/jev"
 	"github.com/luisferrassini/jev-check/internal/secretscan"
 	"github.com/luisferrassini/jev-check/internal/workspace"
 )
@@ -69,7 +70,7 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	cfg, err := loadSettings(dir, model)
+	cfg, err := jev.LoadSettings(dir, model)
 	if err != nil {
 		return 0, err
 	}
@@ -87,7 +88,7 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 		return 0, err
 	}
 	// Only yes/no questions have thresholds, so each needs its own fail fixtures.
-	blocking := noulIDs(questions[0])
+	blocking := jev.NoulIDs(questions[0])
 	if len(blocking) == 0 {
 		return 0, fmt.Errorf("check %s has no yes/no (noul) question, so there is no threshold to evaluate", name)
 	}
@@ -117,7 +118,7 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 		if err != nil {
 			return 0, fmt.Errorf("%s: %w", printable(filepath.Join(fixtures, job.rel)), err)
 		}
-		jobs[i].req = request{Model: cfg.model, Questions: questions[0], State: workspace.FileState(state, file, string(patch), stylePaths[0], styles)}
+		jobs[i].req = jev.Request{Model: cfg.Model, Questions: questions[0], State: workspace.FileState(state, file, string(patch), stylePaths[0], styles)}
 	}
 	// A secret in the shared document is reported once, not once per fixture.
 	var blocked []string
@@ -140,7 +141,7 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	misses, positives, negatives := 0, 0, map[string]int{}
 	lowestPass, highestFail := map[string]float64{}, map[string]float64{}
 	for _, job := range jobs {
-		res, _, err := cachedJev(dir, name, cfg, job.req, noCache, stderr)
+		res, _, err := jev.CachedJev(dir, name, cfg, job.req, noCache, stderr)
 		if err != nil {
 			return 0, err
 		}
@@ -183,7 +184,7 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 // fixture is one patch to evaluate. question is empty for a pass fixture.
 type fixture struct {
 	rel, question string
-	req           request
+	req           jev.Request
 }
 
 // findFixtures lists pass/*.patch and fail/<question>/*.patch, sorted, pass first.

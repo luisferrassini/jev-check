@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/luisferrassini/jev-check/internal/fsutil"
+	"github.com/luisferrassini/jev-check/internal/jev"
 	"github.com/luisferrassini/jev-check/internal/workspace"
 )
 
@@ -30,7 +31,7 @@ func TestShippedChecksDryRun(t *testing.T) {
 		if !fsutil.FileExists(filepath.Join(sourceDir, bundleDir, "input/states", name+".json")) {
 			args = append(args, "--file", input)
 		}
-		var req request
+		var req jev.Request
 		if err := json.Unmarshal([]byte(wantCode(t, 0, args...)), &req); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}

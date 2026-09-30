@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/luisferrassini/jev-check/internal/fsutil"
+	"github.com/luisferrassini/jev-check/internal/jev"
 )
 
 const judgeUsage = `Usage: jev-check judge OUTPUT.json THRESHOLD [QUESTION=THRESHOLD]...
@@ -25,14 +26,14 @@ func judgeCmd(args []string, stdout, _ io.Writer) (int, error) {
 		return 0, errors.New("expected OUTPUT.json THRESHOLD (see --help)")
 	}
 	var saved struct {
-		Request  request  `json:"request"`
-		Response response `json:"response"`
+		Request  jev.Request  `json:"request"`
+		Response jev.Response `json:"response"`
 	}
 	if err := fsutil.ReadJSON(args[0], &saved); err != nil {
 		return 0, err
 	}
 	answers := saved.Response.Answers
-	if err := validateAnswers(answers, saved.Request.Questions); err != nil {
+	if err := jev.ValidateAnswers(answers, saved.Request.Questions); err != nil {
 		return 0, fmt.Errorf("%s: %w", args[0], err)
 	}
 	threshold, err := parseThreshold(args[1])
@@ -68,7 +69,7 @@ func parseThreshold(s string) (float64, error) {
 // printVerdicts prints one line per answer and reports whether a yes/no answer
 // is below its threshold. perQuestion overrides threshold for one question.
 // A negative threshold prints no status.
-func printVerdicts(w io.Writer, answers map[string]answer, threshold float64, perQuestion map[string]float64) bool {
+func printVerdicts(w io.Writer, answers map[string]jev.Answer, threshold float64, perQuestion map[string]float64) bool {
 	ids := slices.Sorted(maps.Keys(answers))
 	failed := false
 	for _, id := range ids {

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/luisferrassini/jev-check/internal/fsutil"
+	"github.com/luisferrassini/jev-check/internal/jev"
 	"github.com/luisferrassini/jev-check/internal/secretscan"
 	"github.com/luisferrassini/jev-check/internal/workspace"
 )
@@ -38,10 +39,10 @@ var fakeEndpoint, fakeSettings string
 // and points it at a fake server that answers each requested question,
 // unless jevAnswers overrides it. It returns the requests the server got.
 // gitInit points other projects at the same server.
-func setup(t *testing.T) *[]request {
+func setup(t *testing.T) *[]jev.Request {
 	t.Helper()
 	t.Chdir(t.TempDir())
-	var got []request
+	var got []jev.Request
 	fakeEndpoint = fakeServer(t, &got)
 	fakeSettings = "TYPESAFE_API_KEY=test\nJEV_CHECK_ENDPOINT=" + fakeEndpoint + "\n"
 	writeSettings(t, ".", fakeSettings)
@@ -58,14 +59,14 @@ func addBundled(t *testing.T, dir string) {
 }
 
 // fakeServer starts a fake Jev server that appends each request it answers to got, and returns its URL.
-func fakeServer(t *testing.T, got *[]request) string {
+func fakeServer(t *testing.T, got *[]jev.Request) string {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer test" {
 			http.Error(w, "bad key", http.StatusUnauthorized)
 			return
 		}
-		var req request
+		var req jev.Request
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -123,8 +124,8 @@ func gitInit(t *testing.T, dir string) {
 	addBundled(t, dir)
 }
 
-// jev runs one command and returns its exit code and stdout.
-func jev(t *testing.T, args ...string) (int, string) {
+// runCmd runs one command and returns its exit code and stdout.
+func runCmd(t *testing.T, args ...string) (int, string) {
 	t.Helper()
 	var stdout, stderr strings.Builder
 	code := run(args, &stdout, &stderr)
@@ -147,7 +148,7 @@ func writeFile(t *testing.T, path, content string) string {
 
 func wantCode(t *testing.T, want int, args ...string) string {
 	t.Helper()
-	code, out := jev(t, args...)
+	code, out := runCmd(t, args...)
 	if code != want {
 		t.Fatalf("jev-check %s: exit %d, want %d\n%s", strings.Join(args, " "), code, want, out)
 	}
@@ -162,7 +163,7 @@ func TestAsk(t *testing.T) {
 		t.Errorf("list: %s", out)
 	}
 
-	var req request
+	var req jev.Request
 	out := wantCode(t, 0, "ask", "--dry-run", "public-release", "--file", patch)
 	if err := json.Unmarshal([]byte(out), &req); err != nil {
 		t.Fatal(err)
@@ -216,7 +217,7 @@ func TestSecrets(t *testing.T) {
 	for _, leak := range leaks {
 		patch += "+" + leak[1] + "\n"
 	}
-	code, out := jev(t, "secrets", writeFile(t, filepath.Join(dir, "leak.patch"), patch))
+	code, out := runCmd(t, "secrets", writeFile(t, filepath.Join(dir, "leak.patch"), patch))
 	if code != 1 {
 		t.Errorf("exit %d on keys, want 1", code)
 	}
