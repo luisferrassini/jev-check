@@ -30,9 +30,9 @@ type project struct {
 	Checks  []gateCheck `json:"checks"`
 }
 
-func contextCmd(args []string, stdout, _ io.Writer) (int, error) {
+func stateCmd(args []string, stdout, _ io.Writer) (int, error) {
 	if len(args) > 0 && isHelp(args[0]) {
-		fmt.Fprint(stdout, `Usage: jev-check context [DIR]   reads DIR/.jev-check/config.json (default: .)
+		fmt.Fprint(stdout, `Usage: jev-check state [DIR]   reads DIR/.jev-check/config.json (default: .)
 Prints the project fields and tree that go with every request. When checks
 name a coding_style document, coding_styles maps each path to its contents
 once. A request holds only its own check's document, as state.coding_style.

@@ -120,13 +120,13 @@ func TestCodingStyleContext(t *testing.T) {
 	requests := setup(t)
 	repo := styleRepo(t, otherCheck)
 	var state map[string]any
-	json.Unmarshal([]byte(wantCode(t, 0, "context", repo)), &state)
+	json.Unmarshal([]byte(wantCode(t, 0, "state", repo)), &state)
 	if _, ok := state["coding_styles"]; ok {
 		t.Error("coding_styles without a reference")
 	}
 	writeFile(t, filepath.Join(repo, "CODING_STYLE.md"), "rules\n")
 	styleConfig(t, repo, withStyle+`,{"check":"other","threshold":0.2,"coding_style":"./CODING_STYLE.md"}`)
-	json.Unmarshal([]byte(wantCode(t, 0, "context", repo)), &state)
+	json.Unmarshal([]byte(wantCode(t, 0, "state", repo)), &state)
 	if styles, _ := json.Marshal(state["coding_styles"]); string(styles) != `{"CODING_STYLE.md":"rules\n"}` {
 		t.Errorf("coding_styles: %s", styles)
 	}
@@ -154,7 +154,7 @@ func TestCodingStyleInvalid(t *testing.T) {
 		`"adir/../../x.md"`, `"` + filepath.Join(repo, "CODING_STYLE.md") + `"`, `"blank.md"`, `"nul.md"`, `"latin1.md"`, `"big.md"`}
 	for _, value := range bad {
 		styleConfig(t, repo, `{"check":"public-release","threshold":0.2,"coding_style":`+value+`}`)
-		for _, args := range [][]string{{"gate", repo}, {"context", repo}} {
+		for _, args := range [][]string{{"gate", repo}, {"state", repo}} {
 			var stdout, stderr strings.Builder
 			if code := run(args, &stdout, &stderr); code != 2 || strings.Contains(stdout.String()+stderr.String(), "aaaaaaaa") {
 				t.Errorf("coding_style %s, %s: exit %d: %s", value, args[0], code, stderr.String())
@@ -172,7 +172,7 @@ func TestCodingStyleInvalid(t *testing.T) {
 	}
 	for _, name := range []string{secretName, "unreadable/" + secretName} {
 		styleConfig(t, repo, `{"check":"public-release","threshold":0.2,"coding_style":"`+name+`"}`)
-		for _, args := range [][]string{{"gate", repo}, {"context", repo}} {
+		for _, args := range [][]string{{"gate", repo}, {"state", repo}} {
 			if stderr := wantErr(t, "public-release", args...); strings.Contains(stderr, awsKey) || !strings.Contains(stderr, "not shown") {
 				t.Errorf("coding_style %s, %s: %s", name, args[0], stderr)
 			}
@@ -200,7 +200,7 @@ func TestCodingStyleSecret(t *testing.T) {
 	requests := setup(t)
 	repo := styleRepo(t, otherCheck+","+withStyle)
 	writeFile(t, filepath.Join(repo, "CODING_STYLE.md"), "# Style\nexample = "+awsKey+"\n")
-	for _, args := range [][]string{{"gate", repo}, {"context", repo}} {
+	for _, args := range [][]string{{"gate", repo}, {"state", repo}} {
 		if out := wantBlocked(t, requests, awsKey, args...); !strings.Contains(out, "CODING_STYLE.md line 2 looks like aws-access-key") {
 			t.Errorf("%s output:\n%s", args[0], out)
 		}

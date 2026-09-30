@@ -285,7 +285,7 @@ func TestGate(t *testing.T) {
 		Project map[string]any `json:"project"`
 		Tree    []string       `json:"tree"`
 	}
-	if err := json.Unmarshal([]byte(wantCode(t, 0, "context", repo)), &state); err != nil {
+	if err := json.Unmarshal([]byte(wantCode(t, 0, "state", repo)), &state); err != nil {
 		t.Fatal(err)
 	}
 	slices.Sort(state.Tree)

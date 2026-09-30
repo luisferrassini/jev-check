@@ -18,7 +18,7 @@ Commands:
                             copy bundled checks into DIR/.jev-check/input/
   list [DIR]                list DIR/.jev-check/input/questions/ and the bundled checks
   ask <check> [options]     ask one check (see jev-check ask --help)
-  context [DIR]             print the project state Jev sees for DIR
+  state [DIR]               print the project state Jev sees for DIR
   secrets PATCH...          scan patches for secrets, including removed lines
   judge OUTPUT THRESHOLD [QUESTION=THRESHOLD]...
                             judge a saved answer again, without the API
@@ -44,7 +44,10 @@ func main() {
 
 func run(args []string, stdout, stderr io.Writer) int {
 	commands := map[string]command{
-		"init": initCmd, "add": addCmd, "list": listCmd, "ask": askCmd, "context": contextCmd,
+		"init": initCmd, "add": addCmd, "list": listCmd, "ask": askCmd, "state": stateCmd,
+		"context": func([]string, io.Writer, io.Writer) (int, error) {
+			return 0, errors.New("renamed to state; run jev-check state [DIR]")
+		},
 		"secrets": secretsCmd, "judge": judgeCmd, "gate": gateCmd, "eval": evalCmd, "doctor": doctorCmd,
 	}
 	if len(args) == 0 {

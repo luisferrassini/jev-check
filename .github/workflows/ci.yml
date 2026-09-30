@@ -44,7 +44,7 @@ jobs:
           mkdir -p .jev-check && ln -s ../.jev-check-example/config.json ../.jev-check-example/input ../.jev-check-example/fixtures .jev-check/
           ./jev-check list
           ./jev-check ask example --dry-run
-          ./jev-check context .
+          ./jev-check state .
       - name: Install script
         run: sh -n install.sh
       - name: No tracked file changed

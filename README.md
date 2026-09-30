@@ -94,7 +94,7 @@ It prints one `ok` or `FAIL` line each for the settings file, the endpoint, the 
 
 ### 6. Make your first live request
 
-`ask` and `gate` call the API. `list`, `init`, `context`, `doctor`, and `--dry-run` do not.
+`ask` and `gate` call the API. `list`, `init`, `state`, `doctor`, and `--dry-run` do not.
 
 Still in `"$demo"`:
 
@@ -120,7 +120,7 @@ Still in `"$demo"`, write a file, stage it, and look at what the gate will see:
 printf '%s\n' '# Hello' '' 'A tiny sample project for trying jev-check.' > README.md
 git add -- README.md
 git diff --cached          # the patch that is sent
-jev-check context .        # the project fields and file tree sent with it
+jev-check state .        # the project fields and file tree sent with it
 jev-check gate .
 ```
 
@@ -218,7 +218,7 @@ Everything jev-check reads or writes is in the `.jev-check/` folder of the proje
 
 Paths inside the configuration (`exclude`, `skip`, `folders`, `coding_style`) stay relative to `<project>`, not to `.jev-check/`.
 
-`gate`, `eval`, `context`, `doctor`, `init`, and `list` take the project folder as `DIR`, and `add` takes it as `--dir DIR` (default: the current folder). `ask` uses the current folder. There is no search in parent folders.
+`gate`, `eval`, `state`, `doctor`, `init`, and `list` take the project folder as `DIR`, and `add` takes it as `--dir DIR` (default: the current folder). `ask` uses the current folder. There is no search in parent folders.
 
 For development, `go build -o jev-check .` still works. This repository ignores its own `.jev-check/`. It tracks its configuration, the bundled checks, their fixtures, and the folder guide in `.jev-check-example/`, and the binary embeds the checks and the guide from there. To work on it, link them into `.jev-check/` once, so edits to a check apply here without a rebuild:
 
@@ -230,7 +230,7 @@ Other projects keep their own copies, so a change to a bundled check reaches the
 
 ### Moving to `.jev-check/`
 
-Older versions read the config from `.jev-check/project-context.json`. Now it is `.jev-check/config.json`. `gate`, `eval`, and `context` exit 2 when they find only the old name, and `doctor` reports it. Nothing is renamed for you. From the project root:
+Older versions read the config from `.jev-check/project-context.json`. Now it is `.jev-check/config.json`. `gate`, `eval`, and `state` exit 2 when they find only the old name, and `doctor` reports it. Nothing is renamed for you. From the project root:
 
 ```bash
 git mv .jev-check/project-context.json .jev-check/config.json
@@ -449,7 +449,7 @@ Keep detailed coding rules in one document, and give it to the checks that need 
 - The file is sent even when `exclude` or `skip` lists it. Those select the files to judge, not the context.
 - The path must stay inside the project, without `..`, absolute paths, or symlinks. The file must be regular UTF-8 text, not empty, with no NUL byte, and at most 65,536 bytes. It is sent exactly as it is. Any problem is exit `2` before any request.
 - A change to the document misses the cache for the checks that use it. A threshold change does not.
-- `jev-check context` adds `coding_styles`, each path once with its contents. It is a preview of all documents, not the exact request of any one check.
+- `jev-check state` adds `coding_styles`, each path once with its contents. It is a preview of all documents, not the exact request of any one check.
 
 This repository's rules are in [`CODING_STYLE.md`](CODING_STYLE.md). Formatting (`gofmt`), `go vet`, and `go test` stay with those tools; the check does not guess whether they ran. A pass from `coding-style` is a judgment over one patch, not proof that the repository follows the rules. It is not in this repository's gate yet. Its calibration is in [`.jev-check-example/fixtures/coding-style/CALIBRATION.md`](.jev-check-example/fixtures/coding-style/CALIBRATION.md).
 
@@ -494,7 +494,7 @@ go vet ./...
 go test -count=1 ./...
 go build -o jev-check .
 [ -e .jev-check/config.json ] || (mkdir -p .jev-check && ln -s ../.jev-check-example/config.json ../.jev-check-example/input ../.jev-check-example/fixtures .jev-check/)
-./jev-check --help && ./jev-check list && ./jev-check ask example --dry-run && ./jev-check context .
+./jev-check --help && ./jev-check list && ./jev-check ask example --dry-run && ./jev-check state .
 ```
 
 The same commands run on every pull request and every push to `main`, as the GitHub check `CI / checks` ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). It needs no secrets, so it works on pull requests from forks. Making it a required check is a branch protection setting, not part of the repository.
@@ -522,7 +522,7 @@ flowchart LR
     subgraph cmds["Commands"]
         direction TB
         setup["init, add, list"]
-        offline["context, doctor, secrets"]
+        offline["state, doctor, secrets"]
         judgeCmd["judge"]
         api["ask, gate, eval"]
     end
@@ -558,8 +558,8 @@ flowchart LR
     setup -- "init, add copy checks,<br/>never overwrite" --> input
     setup -- "init writes" --> cfg
     offline -- "doctor" --> settings
-    offline -- "context, doctor read" --> cfg
-    offline -- "context: git ls-files" --> repo
+    offline -- "state, doctor read" --> cfg
+    offline -- "state: git ls-files" --> repo
     offline --> scan
     api --> settings
     settings -- "reads, refuses it<br/>if Git tracks it" --> env
@@ -616,7 +616,7 @@ jev-check add [--dir DIR] <check>...             # copy bundled checks into DIR/
 jev-check list [DIR]                             # the project's checks and which ones the gate runs
 jev-check ask <check> --file PATH --threshold N  # ask one check about any files
 jev-check ask draft.json --file PATH --dry-run   # print the request for a draft check
-jev-check context .                              # the project state Jev sees
+jev-check state .                              # the project state Jev sees
 jev-check secrets PATCH...                       # the local secret scan alone
 jev-check judge .jev-check/output/<file>.json 0.5 # judge a saved answer again, without the API
 jev-check gate [DIR]                             # run DIR's checks on its staged files
@@ -631,7 +631,7 @@ jev-check <command> --help
 | `add` | no | no | no | `.jev-check/input/` files that are missing |
 | `list` | no | no | no | nothing |
 | `ask` | yes, not with `--dry-run` | yes | no | `.jev-check/output/` |
-| `context` | no | no | yes | nothing |
+| `state` | no | no | yes | nothing |
 | `secrets` | no | no | no | nothing |
 | `judge` | no | no | no | nothing |
 | `gate` | yes, on a cache miss | yes | yes | `.jev-check/output/` and its cache |
@@ -808,9 +808,9 @@ flowchart TD
     below -- "no" --> ok["exit 0"]
 ```
 
-### context
+### state
 
-`jev-check context [DIR]` prints the shared state that `gate` and `eval` send with every patch. It reads no settings, validates no checks, and calls no API.
+`jev-check state [DIR]` prints the shared state that `gate` and `eval` send with every patch. It reads no settings, validates no checks, and calls no API.
 
 1. Reads `DIR/.jev-check/config.json` (default `DIR`: the current folder). If only an old `project-context.json` exists, at the root or in `.jev-check/`, it exits 2 with the move steps.
 2. Reads each `coding_style` document the checks name. The path must stay inside the project with no `..`, absolute path, or symlink. The file must be regular UTF-8 text, not empty, without NUL bytes, and at most 65,536 bytes.
@@ -822,7 +822,7 @@ It scans only the `coding_style` documents. The project fields and the tree are 
 
 ```mermaid
 flowchart TD
-    s(["jev-check context DIR"]) --> cfg{"DIR/.jev-check/<br/>config.json?"}
+    s(["jev-check state DIR"]) --> cfg{"DIR/.jev-check/<br/>config.json?"}
     cfg -- "missing, old root file exists" --> e1["exit 2 with move steps"]
     cfg -- "missing or invalid" --> e2["exit 2"]
     cfg -- "read" --> styles{"Every coding_style path<br/>and file valid?"}
@@ -900,7 +900,7 @@ flowchart TD
 
 1. Loads the settings from `DIR/.jev-check/.env`. A tracked `.env` or a bad endpoint is exit 2. The key is needed only when a request misses the cache.
 2. Reads `config.json` and checks every entry of `checks` before any request: a valid name, a threshold from 0 to 1, a question file in `.jev-check/input/questions/`, and `per_question` entries that name real questions with values from 0 to 1. Any problem is exit 2.
-3. Reads the `coding_style` documents and lists the tree, as `context` does.
+3. Reads the `coding_style` documents and lists the tree, as `state` does.
 4. Scans the shared content: the model, the project fields, the tree, and the `coding_style` documents. A finding prints it with `gate: FAIL` and exits 1 before any request.
 5. Scans each check's questions. A finding prints `== <check> questions` with the report and skips that check. The other checks still run.
 6. Lists the staged files with `git diff --cached --relative --name-only`, minus `exclude`. With no staged file and no finding so far, it prints `nothing staged` and exits 0.

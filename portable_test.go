@@ -182,8 +182,12 @@ func TestInit(t *testing.T) {
 	if data, _ := os.ReadFile(ignore); string(data) != ".env\noutput/\n" {
 		t.Errorf("init .gitignore %q", data)
 	}
-	if context := wantCode(t, 0, "context", sub); strings.Contains(context, ".jev-check") {
-		t.Errorf("context lists .jev-check/:\n%s", context)
+	if state := wantCode(t, 0, "state", sub); strings.Contains(state, ".jev-check") {
+		t.Errorf("state lists .jev-check/:\n%s", state)
+	}
+	var stdout, stderr strings.Builder
+	if code := run([]string{"context", sub}, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "run jev-check state") {
+		t.Errorf("context: exit %d\n%s", code, stderr.String())
 	}
 	if out := wantCode(t, 0, "gate", sub); out != "nothing staged\n" {
 		t.Errorf("gate after init: %s", out)
@@ -383,7 +387,7 @@ func TestOldLayout(t *testing.T) {
 	writeFile(t, filepath.Join(repo, "fixtures/public-release/pass/x.patch"), gitPatch(t, "x", "hello\n"))
 	writeFile(t, filepath.Join(repo, "x"), "hello\n")
 	gitRun(t, repo, "add", "x")
-	for _, args := range [][]string{{"gate", repo}, {"eval", "public-release", repo}, {"context", repo}} {
+	for _, args := range [][]string{{"gate", repo}, {"eval", "public-release", repo}, {"state", repo}} {
 		var stdout, stderr strings.Builder
 		if code := run(args, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), old) ||
 			!strings.Contains(stderr.String(), configPath(repo)) || !strings.Contains(stderr.String(), "git mv project-context.json .jev-check/config.json") {
