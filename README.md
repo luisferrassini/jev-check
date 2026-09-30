@@ -534,7 +534,7 @@ flowchart LR
     subgraph bin["Inside the binary"]
         direction TB
         bundle["Embedded bundle<br/>.jev-check-example/input/<br/>and README.md"]
-        settings["Settings loader<br/>internal/jev/settings.go"]
+        settings["Settings loader<br/>internal/jev"]
         scan["Secret scan<br/>internal/secretscan"]
         cache["Cache lookup<br/>sha256 of endpoint + request"]
         judgeLib["Threshold judge<br/>internal/verdict"]
@@ -1037,7 +1037,7 @@ flowchart TD
 
 ## Layout
 
-The root package holds `main.go` and one file per command. Each command file parses flags and calls the packages in `internal/`, which never import the root.
+The root package holds `main.go` and the command files. Each command file parses flags and calls the packages in `internal/`, which never import the root.
 
 - `ask.go` holds `list` and `ask`. `bundle.go` embeds the bundled checks and the folder guide, and holds `add`. `context.go` holds `init` and `state`. `gate.go`, `eval.go`, `judge.go`, and `secrets.go` hold the commands of the same name. `settings.go` holds `doctor`.
 - `internal/workspace` reads `.jev-check/config.json`, builds the project state from it and the file tree, and loads `coding_style` documents.

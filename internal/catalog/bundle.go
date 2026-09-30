@@ -18,8 +18,8 @@ import (
 // unlike the repository's own .jev-check/, so a clone can build the bundle.
 const BundleDir = ".jev-check-example"
 
-// Bundled is embedded as an fs.FS. go:embed only reads the package's own folder,
-// and moving the folder would change paths that the docs and checks name.
+// Bundled holds the published checks as an fs.FS. The main package sets it in init,
+// because go:embed only reads the package's own folder. It is nil until then.
 var Bundled fs.FS
 
 func BundledPath(kind, name string) string {

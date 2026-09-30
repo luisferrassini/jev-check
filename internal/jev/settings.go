@@ -20,7 +20,7 @@ import (
 const SettingsFile = workspace.Dir + "/.env"
 
 // Settings are the resolved values one command uses for every request.
-// key is empty when the file has none; only a call to the API needs it.
+// Key is empty when the file has none; only a call to the API needs it.
 type Settings struct {
 	path, Key, Endpoint, Model string
 }
@@ -100,7 +100,7 @@ func checkEndpoint(raw string) error {
 	return errors.New("must use https, or http only for localhost, 127.0.0.0/8, or ::1")
 }
 
-// missingKey says where the key goes, and that the environment variable older versions read is ignored.
+// MissingKey says where the key goes, and that the environment variable older versions read is ignored.
 func (s Settings) MissingKey() error {
 	note := ""
 	if os.Getenv("TYPESAFE_API_KEY") != "" {

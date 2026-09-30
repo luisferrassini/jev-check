@@ -19,12 +19,14 @@ import (
 	"github.com/luisferrassini/jev-check/internal/workspace"
 )
 
+// Request is the body sent to the Jev API for one check.
 type Request struct {
 	Model     string                     `json:"model"`
 	Questions map[string]json.RawMessage `json:"questions"`
 	State     map[string]any             `json:"state"`
 }
 
+// Response is the body the Jev API returns.
 type Response struct {
 	Model   string            `json:"model"`
 	Answers map[string]Answer `json:"answers"`

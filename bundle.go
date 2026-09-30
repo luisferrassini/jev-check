@@ -12,7 +12,7 @@ import (
 	"github.com/luisferrassini/jev-check/internal/catalog"
 )
 
-// bundled holds the published checks and the README that init writes. A project never
+// embedded holds the published checks and the README that init writes. A project never
 // runs them from here: add and init copy them into the project's .jev-check/input/.
 //
 //go:embed .jev-check-example/input/questions/*.json .jev-check-example/input/states/*.json .jev-check-example/README.md
