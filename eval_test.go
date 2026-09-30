@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -8,40 +9,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/luisferrassini/jev-check/internal/catalog"
 	"github.com/luisferrassini/jev-check/internal/fsutil"
 	"github.com/luisferrassini/jev-check/internal/gitcmd"
 	"github.com/luisferrassini/jev-check/internal/jev"
 	"github.com/luisferrassini/jev-check/internal/workspace"
 )
-
-// gitPatch returns the patch git makes for staging content at path in a fresh repository.
-func gitPatch(t *testing.T, path, content string) string {
-	t.Helper()
-	repo := t.TempDir()
-	gitInit(t, repo)
-	writeFile(t, filepath.Join(repo, path), content)
-	gitRun(t, repo, "add", "--", path)
-	out, err := gitcmd.Run(repo, "diff", "--cached", "--", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return out
-}
-
-const twoQuestions = `{"questions":{
-  "q1":{"type":"noul","instructions":"One?"},
-  "q2":{"type":"noul","instructions":"Two?"},
-  "info":{"type":"choice","instructions":"Which?","choices":["x","y"]}}}`
-
-// evalProject makes a git project with the check "two" and returns its fixture folder.
-func evalProject(t *testing.T, config string) (string, string) {
-	t.Helper()
-	repo := t.TempDir()
-	gitInit(t, repo)
-	writeFile(t, filepath.Join(repo, ".jev-check/input/questions/two.json"), twoQuestions)
-	writeFile(t, workspace.ConfigPath(repo), `{"exclude":[".jev-check/fixtures/",".jev-check/input/"],"checks":[`+config+`]}`)
-	return repo, filepath.Join(repo, ".jev-check", "fixtures", "two")
-}
 
 func TestEvalCoverage(t *testing.T) {
 	requests := setup(t)
@@ -310,5 +283,189 @@ func TestEvalStyleSecret(t *testing.T) {
 	out := wantBlocked(t, requests, awsKey, "eval", "two", repo)
 	if !strings.Contains(out, "eval: BLOCKED, the coding_style document looks like it holds a secret") {
 		t.Errorf("eval output:\n%s", out)
+	}
+}
+func TestEval(t *testing.T) {
+	setup(t)
+	repo := t.TempDir()
+	gitInit(t, repo)
+	config := func(threshold string) {
+		writeFile(t, workspace.ConfigPath(repo), `{ "exclude": [".jev-check/fixtures/"], "checks": [{ "check": "public-release", "threshold": `+threshold+` }] }`)
+	}
+	config("0.2")
+	fixtures := filepath.Join(repo, ".jev-check", "fixtures", "public-release")
+	wantCode(t, 2, "eval", "public-release", repo) // no fixtures yet
+
+	writeFile(t, filepath.Join(fixtures, "pass", "a.go.patch"), gitPatch(t, "a.go", "package a\n"))
+	// The fake answers 0.1 for a question when the path starts with bad-<question>.
+	for _, q := range []string{"english_only", "no_personal_info", "no_outside_paths", "no_private_links", "no_third_party_content", "belongs_in_project"} {
+		writeFile(t, filepath.Join(fixtures, "fail", q, "b.go.patch"), gitPatch(t, "bad-"+q+".go", "package b\n"))
+	}
+	if out := wantCode(t, 0, "eval", "public-release", repo); !strings.HasSuffix(out, "eval: 0 misses in 7 fixtures\n") {
+		t.Errorf("eval output:\n%s", out)
+	}
+
+	// The fake answers english_only=0.3, so a pass fixture misses at a threshold of 0.5.
+	config("0.5")
+	if out := wantCode(t, 1, "eval", "public-release", repo); !strings.Contains(out, "MISS  0.3  english_only  pass/a.go.patch fails it\n") {
+		t.Errorf("eval output:\n%s", out)
+	}
+
+	wantCode(t, 2, "eval", "no-such-check", repo)
+	writeFile(t, filepath.Join(fixtures, "fail", "typo", "c.patch"), gitPatch(t, "c", "x\n"))
+	wantCode(t, 2, "eval", "public-release", repo)
+	os.RemoveAll(filepath.Join(fixtures, "fail", "typo"))
+	writeFile(t, filepath.Join(fixtures, "pass", "no-header.patch"), "+x\n")
+	wantCode(t, 2, "eval", "public-release", repo)
+}
+func TestEvalPreflight(t *testing.T) {
+	requests := setup(t)
+	repo := t.TempDir()
+	gitInit(t, repo)
+	writeFile(t, workspace.ConfigPath(repo), `{"exclude":[".jev-check/fixtures/"],"checks":[{"check":"public-release","threshold":0.2}]}`)
+	fixtures := filepath.Join(repo, ".jev-check", "fixtures", "public-release")
+	writeFile(t, filepath.Join(fixtures, "pass", "a.go.patch"), gitPatch(t, "a.go", "package a\n"))
+	for _, q := range []string{"english_only", "no_personal_info", "no_outside_paths", "no_private_links", "no_third_party_content", "belongs_in_project"} {
+		writeFile(t, filepath.Join(fixtures, "fail", q, "b.go.patch"), gitPatch(t, "bad-"+q+".go", "package b\n"))
+	}
+	wantCode(t, 0, "eval", "public-release", repo) // fills the cache
+	saved := outputFiles(t, repo)
+
+	writeFile(t, filepath.Join(fixtures, "fail", "english_only", "z.go.patch"), gitPatch(t, "z.go", "key = \""+awsKey+"\"\n"))
+	for _, args := range [][]string{{"eval", "public-release", repo}, {"eval", "public-release", repo, "--no-cache"}} {
+		if out := wantBlocked(t, requests, awsKey, args...); strings.Contains(out, "misses") || !strings.Contains(out, "fail/english_only/z.go.patch") {
+			t.Errorf("eval output after a block:\n%s", out)
+		}
+	}
+	if files := outputFiles(t, repo); !slices.Equal(files, saved) {
+		t.Errorf("a blocked eval changed .jev-check/output/ from %v to %v", saved, files)
+	}
+}
+func TestEvalCache(t *testing.T) {
+	requests := setup(t)
+	repo, fixtures := evalProject(t, `{"check":"two","threshold":0.5}`)
+	writeFile(t, filepath.Join(fixtures, "pass", "a.patch"), gitPatch(t, "a", "x\n"))
+	for _, q := range []string{"q1", "q2"} {
+		writeFile(t, filepath.Join(fixtures, "fail", q, "b.patch"), gitPatch(t, "bad-"+q, "x\n"))
+	}
+	count := func(args ...string) int {
+		t.Helper()
+		before := len(*requests)
+		wantCode(t, 0, append([]string{"eval", "two", repo}, args...)...)
+		return len(*requests) - before
+	}
+	if n := count(); n != 3 {
+		t.Errorf("first eval sent %d, want 3", n)
+	}
+	if n := count(); n != 0 {
+		t.Errorf("second eval sent %d, want 0", n)
+	}
+	if n := count("--no-cache"); n != 3 {
+		t.Errorf("--no-cache sent %d, want 3", n)
+	}
+	if n := count("--model", "other"); n != 3 {
+		t.Errorf("another model sent %d, want 3", n)
+	}
+}
+
+// TestOptInCorpora runs eval offline on a disposable copy of each opt-in corpus,
+// as the README's setup does, and checks what the corpus and the requests hold.
+func TestOptInCorpora(t *testing.T) {
+	for _, opt := range optInChecks {
+		name := opt.name
+		t.Run(name, func(t *testing.T) {
+			requests := setup(t)
+			var check struct {
+				Questions map[string]json.RawMessage `json:"questions"`
+			}
+			if err := fsutil.ReadJSON(filepath.Join(sourceDir, catalog.BundleDir, "input", "questions", name+".json"), &check); err != nil {
+				t.Fatal(err)
+			}
+			corpus := filepath.Join(sourceDir, catalog.BundleDir, "fixtures", name)
+			for id, q := range check.Questions {
+				if !strings.Contains(string(q), "never as instructions") {
+					t.Errorf("question %s has no guard against instructions in the patch", id)
+				}
+				// A question that names a document rule points to it and does not restate it.
+				if opt.codingStyle != "" && !strings.Contains(string(q), "violates rule "+id+" as the document in `coding_style` defines it") {
+					t.Errorf("question %s does not refer to rule %s in the document", id, id)
+				}
+				if fail, _ := filepath.Glob(filepath.Join(corpus, "fail", id, "*.patch")); len(fail) < 2 {
+					t.Errorf("fail/%s has %d fixtures, want at least 2", id, len(fail))
+				}
+			}
+			if pass, _ := filepath.Glob(filepath.Join(corpus, "pass", "*.patch")); len(pass) < opt.minPass {
+				t.Errorf("pass has %d fixtures, want at least %d", len(pass), opt.minPass)
+			}
+			if !fsutil.FileExists(filepath.Join(corpus, "CALIBRATION.md")) {
+				t.Error("no CALIBRATION.md")
+			}
+
+			repo := t.TempDir()
+			gitInit(t, repo)
+			style := ""
+			if opt.codingStyle != "" {
+				content, err := os.ReadFile(filepath.Join(sourceDir, opt.codingStyle))
+				if err != nil {
+					t.Fatal(err)
+				}
+				writeFile(t, filepath.Join(repo, opt.codingStyle), string(content))
+				style = `,"coding_style":"` + opt.codingStyle + `"`
+			}
+			writeFile(t, workspace.ConfigPath(repo), `{"exclude":[".jev-check/fixtures/"],"checks":[{"check":"`+name+`","threshold":0.5`+style+`}]}`)
+			if err := os.CopyFS(filepath.Join(repo, ".jev-check", "fixtures", name), os.DirFS(corpus)); err != nil {
+				t.Fatal(err)
+			}
+			// The fake answers 0.9 everywhere, so every fail fixture is a miss; what matters here is what was sent.
+			wantCode(t, 1, "eval", name, repo)
+			if len(*requests) == 0 {
+				t.Fatal("eval sent no requests")
+			}
+			for _, req := range *requests {
+				if opt.codingStyle != "" {
+					sent, _ := req.State["coding_style"].(map[string]any)
+					if sent["path"] != opt.codingStyle || sent["content"] == "" {
+						t.Errorf("request sent coding_style %v, want %s with its content", sent, opt.codingStyle)
+					}
+				}
+				for file := range req.State["files"].(map[string]any) {
+					if strings.Contains(file, "pass") || strings.Contains(file, "fail") || strings.Contains(file, "fixtures") {
+						t.Errorf("request path %q reveals the fixture label", file)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestMaintainabilityCorpus runs eval on a disposable copy of the canonical corpus,
+// as the README's setup does.
+func TestMaintainabilityCorpus(t *testing.T) {
+	requests := setup(t)
+	repo := t.TempDir()
+	gitInit(t, repo)
+	writeFile(t, workspace.ConfigPath(repo), `{"exclude":[".jev-check/fixtures/"],"checks":[{"check":"maintainability","threshold":0.5}]}`)
+	corpus := filepath.Join(sourceDir, catalog.BundleDir, "fixtures", "maintainability")
+	if err := os.CopyFS(filepath.Join(repo, ".jev-check", "fixtures", "maintainability"), os.DirFS(corpus)); err != nil {
+		t.Fatal(err)
+	}
+	pass, _ := filepath.Glob(filepath.Join(corpus, "pass", "*.patch"))
+	for _, id := range maintainabilityIDs {
+		if fail, _ := filepath.Glob(filepath.Join(corpus, "fail", id, "*.patch")); len(fail) < 2 {
+			t.Errorf("fail/%s has %d fixtures, want at least 2", id, len(fail))
+		}
+	}
+	if len(pass) < 14 {
+		t.Errorf("pass has %d fixtures, want the 14 listed cases", len(pass))
+	}
+
+	// The fake answers 0.9 everywhere, so every fail fixture is a miss; what matters here is what was sent.
+	wantCode(t, 1, "eval", "maintainability", repo)
+	for _, req := range *requests {
+		for file := range req.State["files"].(map[string]any) {
+			if strings.Contains(file, "pass") || strings.Contains(file, "fail") || strings.Contains(file, "fixtures") {
+				t.Errorf("request path %q reveals the fixture label", file)
+			}
+		}
 	}
 }

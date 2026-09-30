@@ -14,28 +14,6 @@ import (
 	"github.com/luisferrassini/jev-check/internal/workspace"
 )
 
-// wantErr runs a command that must exit 2 with want in its error, and returns the error output.
-func wantErr(t *testing.T, want string, args ...string) string {
-	t.Helper()
-	var stdout, stderr strings.Builder
-	if code := run(args, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), want) {
-		t.Errorf("jev-check %s: exit %d, want 2 with %q\n%s%s", strings.Join(args, " "), code, want, stdout.String(), stderr.String())
-	}
-	return stderr.String()
-}
-
-// countingServer answers every request with a server error and returns its URL and request count.
-func countingServer(t *testing.T) (string, *int) {
-	t.Helper()
-	hits := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits++
-		http.Error(w, "down", http.StatusInternalServerError)
-	}))
-	t.Cleanup(server.Close)
-	return server.URL, &hits
-}
-
 func TestSettingsFile(t *testing.T) {
 	requests := setup(t)
 	project, _ := os.Getwd()
