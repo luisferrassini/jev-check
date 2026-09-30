@@ -112,7 +112,7 @@ func TestAskPreflight(t *testing.T) {
 
 func TestScanRequestDedup(t *testing.T) {
 	// The value alone and its assignment both find github-token under the same label.
-	var found secretscan.SecretsFound
+	var found secretscan.Found
 	if !errors.As(secretscan.ScanRequest(jev.Request{State: map[string]any{"token": ghToken}}), &found) {
 		t.Fatal("token not found")
 	}

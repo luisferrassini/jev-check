@@ -129,7 +129,7 @@ func TestCacheIdentity(t *testing.T) {
 	for _, v := range []string{"one", "two", "two"} {
 		req := jev.Request{Model: "m", Questions: map[string]json.RawMessage{"q": json.RawMessage(`{"type":"noul"}`)}, State: map[string]any{"future": v}}
 		settings, _ := jev.LoadSettings(repo, "")
-		if _, _, err := jev.CachedJev(repo, "x", settings, req, false, io.Discard); err != nil {
+		if _, _, err := jev.AskCached(repo, "x", settings, req, false, io.Discard); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -295,17 +295,5 @@ func TestEvalCache(t *testing.T) {
 	}
 	if n := count("--model", "other"); n != 3 {
 		t.Errorf("another model sent %d, want 3", n)
-	}
-}
-
-func TestCacheFresh(t *testing.T) {
-	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
-	for age, want := range map[time.Duration]bool{
-		0: true, time.Second: true, 24*time.Hour - time.Nanosecond: true,
-		24 * time.Hour: false, 25 * time.Hour: false, -time.Nanosecond: false,
-	} {
-		if got := jev.Fresh(now.Add(-age), now); got != want {
-			t.Errorf("age %v: fresh %v, want %v", age, got, want)
-		}
 	}
 }

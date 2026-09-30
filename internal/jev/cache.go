@@ -30,19 +30,19 @@ type cacheEntry struct {
 	Response  Response `json:"response"`
 }
 
-// Fresh reports whether an entry created at created can be reused at now.
+// fresh reports whether an entry created at created can be reused at now.
 // A future time counts as unknown age, so it is not reused.
-func Fresh(created, now time.Time) bool {
+func fresh(created, now time.Time) bool {
 	age := now.Sub(created)
 	return age >= 0 && age < cacheLifetime
 }
 
-// CachedJev returns the answers from project/.jev-check/output/cache/v2/ when the same request went to the
+// AskCached returns the answers from project/.jev-check/output/cache/v2/ when the same request went to the
 // same endpoint less than cacheLifetime ago, else it calls Jev and caches the answers.
 // The key is the whole request, so any change to the model, questions, or state misses.
 // Thresholds are not in the request: the gate judges cached answers again on every run.
 // noCache skips the lookup but still saves the new answers.
-func CachedJev(project, name string, cfg Settings, req Request, noCache bool, stderr io.Writer) (Response, bool, error) {
+func AskCached(project, name string, cfg Settings, req Request, noCache bool, stderr io.Writer) (Response, bool, error) {
 	// Scan before the cache, so an old answer never hides a secret.
 	if err := secretscan.ScanRequest(req); err != nil {
 		return Response{}, false, err
@@ -57,15 +57,15 @@ func CachedJev(project, name string, cfg Settings, req Request, noCache bool, st
 		return Response{}, false, err
 	}
 	sum := sha256.Sum256(key)
-	path := filepath.Join(project, workspace.JevDir, "output", "cache", "v2", hex.EncodeToString(sum[:])+".json")
+	path := filepath.Join(project, workspace.Dir, "output", "cache", "v2", hex.EncodeToString(sum[:])+".json")
 	var entry cacheEntry
 	if !noCache && fsutil.ReadJSON(path, &entry) == nil && entry.Version == cacheVersion {
 		created, err := time.Parse(time.RFC3339, entry.CreatedAt)
-		if err == nil && Fresh(created, time.Now()) && ValidateAnswers(entry.Response.Answers, req.Questions) == nil {
+		if err == nil && fresh(created, time.Now()) && ValidateAnswers(entry.Response.Answers, req.Questions) == nil {
 			return entry.Response, true, nil
 		}
 	}
-	res, _, err := CallJev(project, name, cfg, req)
+	res, _, err := Ask(project, name, cfg, req)
 	if err != nil {
 		return res, false, err
 	}

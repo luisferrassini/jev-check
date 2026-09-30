@@ -1,3 +1,4 @@
+// Package fsutil reads and writes JSON and creates files without overwriting them.
 package fsutil
 
 import (

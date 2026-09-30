@@ -78,7 +78,7 @@ func listCmd(args []string, stdout, _ io.Writer) (int, error) {
 		if !catalog.CheckName.MatchString(name) {
 			return 0, fmt.Errorf("%s: check names use only letters, digits, - and _", catalog.InputPath(project, "questions", name))
 		}
-		c, err := catalog.FindCheck(project, name)
+		c, err := catalog.Find(project, name)
 		if err != nil {
 			return 0, err
 		}
@@ -165,7 +165,7 @@ func askCmd(args []string, stdout, _ io.Writer) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	c, err := catalog.FindCheck(project, positional[0])
+	c, err := catalog.Find(project, positional[0])
 	if err != nil {
 		return 0, err
 	}
@@ -209,11 +209,11 @@ func askCmd(args []string, stdout, _ io.Writer) (int, error) {
 	if dryRun {
 		return 0, fsutil.WriteJSON(stdout, req)
 	}
-	res, saved, err := jev.CallJev(project, name, cfg, req)
+	res, saved, err := jev.Ask(project, name, cfg, req)
 	if err != nil {
 		return 0, err
 	}
-	failed := verdict.PrintVerdicts(stdout, res.Answers, threshold, nil)
+	failed := verdict.Print(stdout, res.Answers, threshold, nil)
 	fmt.Fprintf(stdout, "model: %s  saved: %s\n", res.Model, saved)
 	if failed {
 		return 1, nil

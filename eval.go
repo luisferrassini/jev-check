@@ -73,7 +73,7 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	p, err := workspace.LoadProject(dir)
+	p, err := workspace.Load(dir)
 	if err != nil {
 		return 0, err
 	}
@@ -82,7 +82,7 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 		return 0, fmt.Errorf("%s has no check %s", workspace.ConfigPath(dir), name)
 	}
 	c := p.Checks[i]
-	questions, err := catalog.ValidateChecks(dir, []workspace.GateCheck{c})
+	questions, err := catalog.Validate(dir, []workspace.GateCheck{c})
 	if err != nil {
 		return 0, err
 	}
@@ -95,12 +95,12 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	state, err := workspace.ProjectState(dir, p)
+	state, err := workspace.State(dir, p)
 	if err != nil {
 		return 0, err
 	}
-	fixtures := filepath.Join(dir, workspace.JevDir, "fixtures", name)
-	jobs, err := patchset.FindFixtures(fixtures, blocking)
+	fixtures := filepath.Join(dir, workspace.Dir, "fixtures", name)
+	jobs, err := patchset.Find(fixtures, blocking)
 	if err != nil {
 		return 0, err
 	}
@@ -140,7 +140,7 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	misses, positives, negatives := 0, 0, map[string]int{}
 	lowestPass, highestFail := map[string]float64{}, map[string]float64{}
 	for _, job := range jobs {
-		res, _, err := jev.CachedJev(dir, name, cfg, job.Req, noCache, stderr)
+		res, _, err := jev.AskCached(dir, name, cfg, job.Req, noCache, stderr)
 		if err != nil {
 			return 0, err
 		}

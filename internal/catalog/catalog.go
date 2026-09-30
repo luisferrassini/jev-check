@@ -1,3 +1,4 @@
+// Package catalog finds a project's checks and copies bundled checks into a project.
 package catalog
 
 import (
@@ -24,10 +25,10 @@ type Check struct {
 	Questions  map[string]json.RawMessage
 }
 
-// FindCheck reads a check by path, or by name from project/.jev-check/input/questions/<name>.json
+// Find reads a check by path, or by name from project/.jev-check/input/questions/<name>.json
 // with its optional default state from input/states/. It never reads the bundle: a project runs
 // only the checks it holds.
-func FindCheck(project, arg string) (Check, error) {
+func Find(project, arg string) (Check, error) {
 	c := Check{Name: strings.TrimSuffix(filepath.Base(arg), ".json"), path: arg}
 	var err error
 	switch {
@@ -68,8 +69,8 @@ func parseQuestions(path string, data []byte) (map[string]json.RawMessage, error
 	return check.Questions, nil
 }
 
-// ValidateChecks checks the gate config before any API call and returns each check's questions.
-func ValidateChecks(project string, checks []workspace.GateCheck) ([]map[string]json.RawMessage, error) {
+// Validate checks the gate config before any API call and returns each check's questions.
+func Validate(project string, checks []workspace.GateCheck) ([]map[string]json.RawMessage, error) {
 	if len(checks) == 0 {
 		return nil, errors.New(`needs a "checks" list, each with "check" and "threshold"`)
 	}
@@ -81,7 +82,7 @@ func ValidateChecks(project string, checks []workspace.GateCheck) ([]map[string]
 		if c.Threshold == nil || *c.Threshold < 0 || *c.Threshold > 1 {
 			return nil, fmt.Errorf("check %s needs a threshold from 0 to 1", c.Check)
 		}
-		loaded, err := FindCheck(project, c.Check)
+		loaded, err := Find(project, c.Check)
 		if err != nil {
 			return nil, err
 		}

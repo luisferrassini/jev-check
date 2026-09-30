@@ -59,5 +59,5 @@ func addCmd(args []string, stdout, _ io.Writer) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	return 0, catalog.AddChecks(dir, names, stdout)
+	return 0, catalog.Add(dir, names, stdout)
 }

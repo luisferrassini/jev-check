@@ -1,3 +1,4 @@
+// Package secretscan finds text that looks like a secret, before anything is sent to Jev.
 package secretscan
 
 import (
@@ -41,14 +42,14 @@ var secretPatterns = []secretPattern{
 	{"env-secret", regexp.MustCompile(`^\s*(export\s+)?[A-Z0-9_]*(KEY|SECRET|TOKEN|PASSWORD|PASSWD|PWD|CREDENTIALS?)[A-Z0-9_]*=["']?[A-Za-z0-9_/+.=-]{5,}[0-9][A-Za-z0-9_/+.=-]{5,}`)},
 }
 
-// ScanSecrets returns one line per kind of secret in a patch, including removed and context lines.
+// Scan returns one line per kind of secret in a patch, including removed and context lines.
 // It names the patch line numbers, never the value, and names the patch only when the name is safe to print.
-func ScanSecrets(name, patch string) []string {
-	return SecretReports(SafeLabel(name, "patch"), patch, true)
+func Scan(name, patch string) []string {
+	return Reports(SafeLabel(name, "patch"), patch, true)
 }
 
-// SecretReports returns one line per kind of secret in text. With lines set, it names the line numbers.
-func SecretReports(label, text string, lines bool) []string {
+// Reports returns one line per kind of secret in text. With lines set, it names the line numbers.
+func Reports(label, text string, lines bool) []string {
 	var reports []string
 	split := strings.Split(text, "\n")
 	for _, p := range secretPatterns {
@@ -78,17 +79,17 @@ func SecretReports(label, text string, lines bool) []string {
 // SafeLabel returns name for a diagnostic, or fallback when name looks like a secret
 // or holds a control character that could forge another output line.
 func SafeLabel(name, fallback string) string {
-	if strings.IndexFunc(name, unicode.IsControl) >= 0 || SecretReports("", name, false) != nil {
+	if strings.IndexFunc(name, unicode.IsControl) >= 0 || Reports("", name, false) != nil {
 		return fallback
 	}
 	return name
 }
 
-// SecretsFound is a local refusal to send content that looks like it holds a secret.
+// Found is a local refusal to send content that looks like it holds a secret.
 // run prints its reports and exits 1, unlike other errors.
-type SecretsFound []string
+type Found []string
 
-func (s SecretsFound) Error() string { return strings.Join(s, "\n") }
+func (s Found) Error() string { return strings.Join(s, "\n") }
 
 // ScanRequest scans everything a request would send: the model, question ids and
 // definitions, and every key and value in the state, after JSON escapes are decoded.
@@ -116,7 +117,7 @@ func ScanRequest(req any) error {
 			unique = append(unique, report)
 		}
 	}
-	return SecretsFound(unique)
+	return Found(unique)
 }
 
 // scanValue scans each string with its line numbers, each object key, and each
@@ -125,7 +126,7 @@ func ScanRequest(req any) error {
 func scanValue(label string, v any, reports *[]string) {
 	switch v := v.(type) {
 	case string:
-		*reports = append(*reports, SecretReports(label, v, strings.Contains(v, "\n"))...)
+		*reports = append(*reports, Reports(label, v, strings.Contains(v, "\n"))...)
 	case []any:
 		for i, e := range v {
 			scanValue(fmt.Sprintf("%s[%d]", label, i), e, reports)
@@ -133,15 +134,15 @@ func scanValue(label string, v any, reports *[]string) {
 	case map[string]any:
 		for i, k := range slices.Sorted(maps.Keys(v)) {
 			entry := SafeLabel(label+"."+k, fmt.Sprintf("%s entry %d", label, i+1))
-			*reports = append(*reports, SecretReports(entry+" key", k, false)...)
+			*reports = append(*reports, Reports(entry+" key", k, false)...)
 			switch e := v[k].(type) {
 			case string, json.Number, bool:
-				*reports = append(*reports, SecretReports(entry, fmt.Sprintf("%q: \"%v\"", k, e), false)...)
+				*reports = append(*reports, Reports(entry, fmt.Sprintf("%q: \"%v\"", k, e), false)...)
 			case []any:
 				for j, item := range e {
 					switch item.(type) {
 					case string, json.Number, bool:
-						*reports = append(*reports, SecretReports(fmt.Sprintf("%s[%d]", entry, j), fmt.Sprintf("%q: \"%v\"", k, item), false)...)
+						*reports = append(*reports, Reports(fmt.Sprintf("%s[%d]", entry, j), fmt.Sprintf("%q: \"%v\"", k, item), false)...)
 					}
 				}
 			}
@@ -155,11 +156,11 @@ func StyleSecrets(docs map[string]string) error {
 	var reports []string
 	for _, path := range slices.Sorted(maps.Keys(docs)) {
 		label := SafeLabel(path, "coding_style document")
-		reports = append(reports, SecretReports(label+" path", path, false)...)
-		reports = append(reports, SecretReports(label, docs[path], true)...)
+		reports = append(reports, Reports(label+" path", path, false)...)
+		reports = append(reports, Reports(label, docs[path], true)...)
 	}
 	if reports == nil {
 		return nil
 	}
-	return SecretsFound(reports)
+	return Found(reports)
 }

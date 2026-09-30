@@ -17,7 +17,7 @@ import (
 
 // SettingsFile holds jev-check's key, endpoint, and model, relative to the project.
 // Nothing else is read for them: not the environment, not the project's own .env.
-const SettingsFile = workspace.JevDir + "/.env"
+const SettingsFile = workspace.Dir + "/.env"
 
 // Settings are the resolved values one command uses for every request.
 // key is empty when the file has none; only a call to the API needs it.
@@ -51,12 +51,12 @@ func ReadSettings(project string) (map[string]string, string, error) {
 	path := filepath.Join(project, SettingsFile)
 	// Outside a Git repository, as ask allows, there is nothing to be tracked in. Any other
 	// failure, such as a repository Git refuses for its owner, could hide a tracked file.
-	_, err := gitcmd.Git(project, "rev-parse", "--is-inside-work-tree")
+	_, err := gitcmd.Run(project, "rev-parse", "--is-inside-work-tree")
 	if err != nil && !strings.Contains(err.Error(), "not a git repository") {
 		return nil, path, fmt.Errorf("checking whether %s is tracked by Git: %w", path, err)
 	}
 	if err == nil {
-		out, err := gitcmd.Git(project, "ls-files", "-z", "--", SettingsFile)
+		out, err := gitcmd.Run(project, "ls-files", "-z", "--", SettingsFile)
 		if err != nil {
 			return nil, path, err
 		}

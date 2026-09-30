@@ -67,11 +67,11 @@ func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	p, err := workspace.LoadProject(dir)
+	p, err := workspace.Load(dir)
 	if err != nil {
 		return 0, err
 	}
-	questions, err := catalog.ValidateChecks(dir, p.Checks)
+	questions, err := catalog.Validate(dir, p.Checks)
 	if err != nil {
 		return 0, fmt.Errorf("%s: %w", workspace.ConfigPath(dir), err)
 	}
@@ -79,7 +79,7 @@ func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("%s: %w", workspace.ConfigPath(dir), err)
 	}
-	state, err := workspace.ProjectState(dir, p)
+	state, err := workspace.State(dir, p)
 	if err != nil {
 		return 0, err
 	}
@@ -118,12 +118,12 @@ func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 
 	patches := map[string]string{}
 	for _, file := range files {
-		patch, err := gitcmd.Git(dir, "diff", "--cached", "--relative", "--", ":(literal)"+file)
+		patch, err := gitcmd.Run(dir, "diff", "--cached", "--relative", "--", ":(literal)"+file)
 		if err != nil {
 			return 0, err
 		}
 		// A patch that looks like it holds a secret is never sent.
-		if reports := secretscan.SecretReports(label(file)+".patch", patch, true); reports != nil {
+		if reports := secretscan.Reports(label(file)+".patch", patch, true); reports != nil {
 			for _, report := range reports {
 				fmt.Fprintln(stdout, report)
 			}
@@ -147,8 +147,8 @@ func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 				continue
 			}
 			req := jev.Request{Model: cfg.Model, Questions: questions[i], State: workspace.FileState(state, file, patch, stylePaths[i], styles)}
-			res, cached, err := jev.CachedJev(dir, c.Check, cfg, req, noCache, stderr)
-			var found secretscan.SecretsFound
+			res, cached, err := jev.AskCached(dir, c.Check, cfg, req, noCache, stderr)
+			var found secretscan.Found
 			switch {
 			case errors.As(err, &found):
 				fmt.Fprintf(stdout, "== %s %s\n%v\n", c.Check, label(file), found)
@@ -161,7 +161,7 @@ func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 				continue
 			}
 			fmt.Fprintf(stdout, "== %s %s%s\n", c.Check, label(file), map[bool]string{true: " (cached)"}[cached])
-			if verdict.PrintVerdicts(stdout, res.Answers, *c.Threshold, c.PerQuestion) {
+			if verdict.Print(stdout, res.Answers, *c.Threshold, c.PerQuestion) {
 				status = max(status, 1)
 			}
 		}

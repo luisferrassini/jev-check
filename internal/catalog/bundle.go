@@ -28,7 +28,7 @@ func BundledPath(kind, name string) string {
 
 // InputDir returns dir/.jev-check/input/<kind>, the folder that holds a project's checks or states.
 func InputDir(dir, kind string) string {
-	return filepath.Join(dir, workspace.JevDir, "input", kind)
+	return filepath.Join(dir, workspace.Dir, "input", kind)
 }
 
 // InputPath returns dir/.jev-check/input/<kind>/<name>.json.
@@ -62,9 +62,9 @@ func missingCheck(project, name string) error {
 	return fmt.Errorf("no check %q: %s does not exist; copy the bundled one with: %s", name, file, add)
 }
 
-// AddChecks copies the named bundled checks into dir/.jev-check/input/, keeping any file already there.
+// Add copies the named bundled checks into dir/.jev-check/input/, keeping any file already there.
 // It checks every name before it writes anything.
-func AddChecks(dir string, names []string, stdout io.Writer) error {
+func Add(dir string, names []string, stdout io.Writer) error {
 	for _, name := range names {
 		if !CheckName.MatchString(name) {
 			return fmt.Errorf("%q: check names use only letters, digits, - and _", name)

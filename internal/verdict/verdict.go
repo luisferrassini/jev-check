@@ -1,3 +1,4 @@
+// Package verdict turns yes/no answers into ok or FAIL verdicts against a threshold.
 package verdict
 
 import (
@@ -18,10 +19,10 @@ func ParseThreshold(s string) (float64, error) {
 	return t, nil
 }
 
-// PrintVerdicts prints one line per answer and reports whether a yes/no answer
+// Print prints one line per answer and reports whether a yes/no answer
 // is below its threshold. perQuestion overrides threshold for one question.
 // A negative threshold prints no status.
-func PrintVerdicts(w io.Writer, answers map[string]jev.Answer, threshold float64, perQuestion map[string]float64) bool {
+func Print(w io.Writer, answers map[string]jev.Answer, threshold float64, perQuestion map[string]float64) bool {
 	ids := slices.Sorted(maps.Keys(answers))
 	failed := false
 	for _, id := range ids {

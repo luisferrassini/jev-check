@@ -54,7 +54,7 @@ func setup(t *testing.T) *[]jev.Request {
 // addBundled copies every bundled check into dir/.jev-check/input/, as jev-check add does.
 func addBundled(t *testing.T, dir string) {
 	t.Helper()
-	if err := catalog.AddChecks(dir, catalog.BundledNames(), io.Discard); err != nil {
+	if err := catalog.Add(dir, catalog.BundledNames(), io.Discard); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -248,7 +248,7 @@ func TestSecrets(t *testing.T) {
 			t.Fatal(err)
 		}
 		self := "+" + strings.ReplaceAll(string(content), "\n", "\n+")
-		if reports := secretscan.ScanSecrets(source, self); reports != nil {
+		if reports := secretscan.Scan(source, self); reports != nil {
 			t.Errorf("false positive on %s: %v", source, reports)
 		}
 	}
@@ -421,7 +421,7 @@ func TestInvalidAnswers(t *testing.T) {
 	for _, q := range []string{"english_only", "no_personal_info", "no_outside_paths", "no_private_links", "no_third_party_content", "belongs_in_project"} {
 		writeFile(t, filepath.Join(repo, ".jev-check/fixtures/public-release/fail", q, "x.patch"), gitPatch(t, "x", "hello\n"))
 	}
-	c, err := catalog.FindCheck(repo, "public-release")
+	c, err := catalog.Find(repo, "public-release")
 	if err != nil {
 		t.Fatal(err)
 	}

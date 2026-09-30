@@ -23,7 +23,7 @@ func secretsCmd(args []string, stdout, _ io.Writer) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		for _, report := range secretscan.ScanSecrets(path, string(patch)) {
+		for _, report := range secretscan.Scan(path, string(patch)) {
 			fmt.Fprintln(stdout, report)
 			found = 1
 		}

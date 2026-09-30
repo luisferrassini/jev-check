@@ -64,7 +64,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	code, err := cmd(args[1:], stdout, stderr)
-	var found secretscan.SecretsFound
+	var found secretscan.Found
 	if errors.As(err, &found) {
 		fmt.Fprintln(stdout, found)
 		return 1

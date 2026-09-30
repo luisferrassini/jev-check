@@ -1,3 +1,4 @@
+// Package jev calls the Jev API, checks its answers, and caches them. It also reads .jev-check/.env.
 package jev
 
 import (
@@ -95,9 +96,9 @@ func ValidateAnswers(answers map[string]Answer, questions map[string]json.RawMes
 	return nil
 }
 
-// CallJev sends a request to cfg's endpoint and saves it, with the response, under project/.jev-check/output/.
+// Ask sends a request to cfg's endpoint and saves it, with the response, under project/.jev-check/output/.
 // It returns the response and the absolute saved path.
-func CallJev(project, name string, cfg Settings, req Request) (Response, string, error) {
+func Ask(project, name string, cfg Settings, req Request) (Response, string, error) {
 	var res Response
 	// Every path to the API passes here, so nothing that looks like a secret is sent.
 	if err := secretscan.ScanRequest(req); err != nil {
@@ -138,7 +139,7 @@ func CallJev(project, name string, cfg Settings, req Request) (Response, string,
 		return res, "", fmt.Errorf("unexpected API response: %w", err)
 	}
 
-	dir := filepath.Join(project, workspace.JevDir, "output")
+	dir := filepath.Join(project, workspace.Dir, "output")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return res, "", err
 	}

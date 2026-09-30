@@ -36,7 +36,7 @@ once. A request holds only its own check's document, as state.coding_style.
 	if len(args) == 1 {
 		dir = args[0]
 	}
-	p, err := workspace.LoadProject(dir)
+	p, err := workspace.Load(dir)
 	if err != nil {
 		return 0, err
 	}
@@ -47,7 +47,7 @@ once. A request holds only its own check's document, as state.coding_style.
 	if err := secretscan.StyleSecrets(styles); err != nil {
 		return 0, err
 	}
-	state, err := workspace.ProjectState(dir, p)
+	state, err := workspace.State(dir, p)
 	if err != nil {
 		return 0, err
 	}
@@ -96,16 +96,16 @@ func initCmd(args []string, stdout, _ io.Writer) (int, error) {
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 		return 0, fmt.Errorf("%s is not a folder", dir)
 	}
-	if out, err := gitcmd.Git(dir, "rev-parse", "--is-inside-work-tree"); err != nil || strings.TrimSpace(out) != "true" {
+	if out, err := gitcmd.Run(dir, "rev-parse", "--is-inside-work-tree"); err != nil || strings.TrimSpace(out) != "true" {
 		return 0, fmt.Errorf("%s is not in a git working tree", dir)
 	}
 	// Mkdir, not MkdirAll: a file or symlink named .jev-check is an error, not a folder to follow.
-	mkErr := os.Mkdir(filepath.Join(dir, workspace.JevDir), 0o755)
+	mkErr := os.Mkdir(filepath.Join(dir, workspace.Dir), 0o755)
 	if mkErr != nil && !errors.Is(mkErr, fs.ErrExist) {
 		return 0, mkErr
 	}
-	if info, err := os.Lstat(filepath.Join(dir, workspace.JevDir)); err != nil || !info.IsDir() {
-		return 0, fmt.Errorf("%s is not a folder", filepath.Join(dir, workspace.JevDir))
+	if info, err := os.Lstat(filepath.Join(dir, workspace.Dir)); err != nil || !info.IsDir() {
+		return 0, fmt.Errorf("%s is not a folder", filepath.Join(dir, workspace.Dir))
 	}
 	path := workspace.ConfigPath(dir)
 	var p workspace.Project
@@ -117,19 +117,19 @@ func initCmd(args []string, stdout, _ io.Writer) (int, error) {
 		}
 	case err != nil:
 		if mkErr == nil {
-			os.Remove(filepath.Join(dir, workspace.JevDir)) // only this run made it; Remove keeps a non-empty folder
+			os.Remove(filepath.Join(dir, workspace.Dir)) // only this run made it; Remove keeps a non-empty folder
 		}
 		return 0, err
 	default:
 		fmt.Fprintf(stdout, "created %s\n", path)
 		json.Unmarshal([]byte(initConfig), &p)
 	}
-	ignore := filepath.Join(dir, workspace.JevDir, ".gitignore")
+	ignore := filepath.Join(dir, workspace.Dir, ".gitignore")
 	if err := fsutil.InstallFile(ignore, ".env\noutput/\n", stdout); err != nil {
 		return 0, err
 	}
 	readme, _ := fs.ReadFile(catalog.Bundled, catalog.BundleDir+"/README.md")
-	if err := fsutil.InstallFile(filepath.Join(dir, workspace.JevDir, "README.md"), string(readme), stdout); err != nil {
+	if err := fsutil.InstallFile(filepath.Join(dir, workspace.Dir, "README.md"), string(readme), stdout); err != nil {
 		return 0, err
 	}
 	// A new input/questions/ gets every bundled check, the ones available to list in "checks".
@@ -143,7 +143,7 @@ func initCmd(args []string, stdout, _ io.Writer) (int, error) {
 			}
 		}
 	}
-	if err := catalog.AddChecks(dir, names, stdout); err != nil {
+	if err := catalog.Add(dir, names, stdout); err != nil {
 		return 0, err
 	}
 	fmt.Fprintf(stdout, `Next:

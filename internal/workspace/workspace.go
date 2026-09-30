@@ -1,3 +1,4 @@
+// Package workspace loads a project's .jev-check/config.json and builds the state Jev reads.
 package workspace
 
 import (
@@ -26,17 +27,17 @@ type Project struct {
 }
 
 // ConfigPath is dir's config.json.
-func ConfigPath(dir string) string { return filepath.Join(dir, JevDir, "config.json") }
+func ConfigPath(dir string) string { return filepath.Join(dir, Dir, "config.json") }
 
-// LoadProject reads dir's config. A config under an old name or at the project root
+// Load reads dir's config. A config under an old name or at the project root
 // is never read: it is an error with the move steps, so its checks are not silently replaced.
-func LoadProject(dir string) (Project, error) {
+func Load(dir string) (Project, error) {
 	var p Project
 	err := fsutil.ReadJSON(ConfigPath(dir), &p)
 	if !errors.Is(err, fs.ErrNotExist) {
 		return p, err
 	}
-	if old := filepath.Join(dir, JevDir, "project-context.json"); fsutil.FileExists(old) {
+	if old := filepath.Join(dir, Dir, "project-context.json"); fsutil.FileExists(old) {
 		return p, fmt.Errorf(`%s is no longer read; jev-check reads %s. Rename it, in %s:
   git mv .jev-check/project-context.json .jev-check/config.json`, old, ConfigPath(dir), dir)
 	}
@@ -51,11 +52,11 @@ Old output/ can be deleted`, old, ConfigPath(dir), dir)
 	return p, err
 }
 
-// ProjectState is the state Jev sees: the project's about fields and its file tree.
+// State is the state Jev sees: the project's about fields and its file tree.
 // The tree is listed on every run, so it never goes stale.
-func ProjectState(dir string, p Project) (map[string]any, error) {
+func State(dir string, p Project) (map[string]any, error) {
 	// This sends the whole tree. Cap it if a large project starts to dilute answers.
-	out, err := gitcmd.Git(dir, append([]string{"ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "."}, gitcmd.Excludes(p.Exclude)...)...)
+	out, err := gitcmd.Run(dir, append([]string{"ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "."}, gitcmd.Excludes(p.Exclude)...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +73,7 @@ type GateCheck struct {
 	CodingStyle json.RawMessage `json:"coding_style"`
 }
 
-// limit is the threshold for question q: its per_question value, else the check's threshold.
+// Limit is the threshold for question q: its per_question value, else the check's threshold.
 func (c GateCheck) Limit(q string) float64 {
 	if t, ok := c.PerQuestion[q]; ok {
 		return t
@@ -80,5 +81,5 @@ func (c GateCheck) Limit(q string) float64 {
 	return *c.Threshold
 }
 
-// JevDir holds every file jev-check reads or writes in a project, relative to the project.
-const JevDir = ".jev-check"
+// Dir holds every file jev-check reads or writes in a project, relative to the project.
+const Dir = ".jev-check"

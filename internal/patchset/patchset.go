@@ -1,3 +1,4 @@
+// Package patchset reads the pass and fail fixture patches that eval runs.
 package patchset
 
 import (
@@ -22,10 +23,10 @@ type Fixture struct {
 	Req           jev.Request
 }
 
-// FindFixtures lists pass/*.patch and fail/<question>/*.patch, sorted, pass first.
+// Find lists pass/*.patch and fail/<question>/*.patch, sorted, pass first.
 // Every fail folder must name a blocking question, and the pass set and every
 // blocking question's fail set must be non-empty. Missing sets are named together.
-func FindFixtures(fixtures string, blocking []string) ([]Fixture, error) {
+func Find(fixtures string, blocking []string) ([]Fixture, error) {
 	var jobs []Fixture
 	add := func(rel, question string) error {
 		entries, err := os.ReadDir(filepath.Join(fixtures, rel))

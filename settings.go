@@ -90,9 +90,9 @@ func doctorCmd(args []string, stdout, _ io.Writer) (int, error) {
 	}
 
 	config := workspace.ConfigPath(dir)
-	p, err := workspace.LoadProject(dir)
+	p, err := workspace.Load(dir)
 	if err == nil {
-		_, err = catalog.ValidateChecks(dir, p.Checks)
+		_, err = catalog.Validate(dir, p.Checks)
 	}
 	if err == nil {
 		_, _, err = workspace.LoadStyles(dir, p.Checks)
@@ -101,18 +101,18 @@ func doctorCmd(args []string, stdout, _ io.Writer) (int, error) {
 		err = fmt.Errorf("%s: %w", config, err)
 	}
 	line("project", config, err)
-	// With no new config, loadProject already reported the old one.
-	for _, old := range []string{filepath.Join(dir, "project-context.json"), filepath.Join(dir, workspace.JevDir, "project-context.json")} {
+	// With no new config, workspace.Load already reported the old one.
+	for _, old := range []string{filepath.Join(dir, "project-context.json"), filepath.Join(dir, workspace.Dir, "project-context.json")} {
 		if fsutil.FileExists(old) && fsutil.FileExists(config) {
 			line("old layout", "", fmt.Errorf("%s is ignored; delete it or move it over %s", old, config))
 		}
 	}
 
-	out := filepath.Join(dir, workspace.JevDir, "output")
+	out := filepath.Join(dir, workspace.Dir, "output")
 	if !fsutil.FileExists(out) {
-		out = filepath.Join(dir, workspace.JevDir)
+		out = filepath.Join(dir, workspace.Dir)
 	}
-	_, err = gitcmd.Git(dir, "rev-parse", "--is-inside-work-tree")
+	_, err = gitcmd.Run(dir, "rev-parse", "--is-inside-work-tree")
 	if err == nil {
 		var probe *os.File
 		if probe, err = os.CreateTemp(out, ".doctor-probe-*"); err == nil {

@@ -1,3 +1,4 @@
+// Package gitcmd runs git and lists staged files.
 package gitcmd
 
 import (
@@ -8,9 +9,9 @@ import (
 	"strings"
 )
 
-// Git runs git in dir and returns its output. An error includes git's message,
+// Run runs git in dir and returns its output. An error includes git's message,
 // untranslated so callers can match it.
-func Git(dir string, args ...string) (string, error) {
+func Run(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
 	cmd.Env = append(os.Environ(), "LC_ALL=C")
 	var stderr bytes.Buffer
@@ -34,7 +35,7 @@ func Excludes(patterns []string) []string {
 // StagedFiles lists the staged files in dir, minus the exclude pathspecs.
 // A git error stops the gate, so a failure never looks like "nothing staged".
 func StagedFiles(dir string, exclude []string) ([]string, error) {
-	out, err := Git(dir, append([]string{"diff", "--cached", "--relative", "--name-only", "-z", "--", "."}, Excludes(exclude)...)...)
+	out, err := Run(dir, append([]string{"diff", "--cached", "--relative", "--name-only", "-z", "--", "."}, Excludes(exclude)...)...)
 	return SplitNUL(out), err
 }
 

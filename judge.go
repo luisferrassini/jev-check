@@ -50,7 +50,7 @@ func judgeCmd(args []string, stdout, _ io.Writer) (int, error) {
 		}
 		perQuestion[id] = limit
 	}
-	if verdict.PrintVerdicts(stdout, answers, threshold, perQuestion) {
+	if verdict.Print(stdout, answers, threshold, perQuestion) {
 		return 1, nil
 	}
 	return 0, nil
