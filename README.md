@@ -534,10 +534,10 @@ flowchart LR
     subgraph bin["Inside the binary"]
         direction TB
         bundle["Embedded bundle<br/>.jev-check-example/input/<br/>and README.md"]
-        settings["Settings loader<br/>settings.go"]
-        scan["Secret scan<br/>secrets.go"]
+        settings["Settings loader<br/>internal/jev/settings.go"]
+        scan["Secret scan<br/>internal/secretscan"]
         cache["Cache lookup<br/>sha256 of endpoint + request"]
-        judgeLib["Threshold judge<br/>judge.go"]
+        judgeLib["Threshold judge<br/>internal/verdict"]
     end
 
     subgraph proj["Project folder"]
@@ -583,12 +583,12 @@ flowchart LR
 
 The pieces, from the request's point of view:
 
-1. `settings.go` reads `.jev-check/.env`. It refuses the file when Git tracks it, checks the endpoint (https, or http on loopback only), and picks the model: `--model`, then `JEV_CHECK_MODEL`, then `jev-latest`.
-2. `context.go` reads `.jev-check/config.json` and lists the file tree with `git ls-files`, minus `exclude`. This is the shared part of every gate and eval request.
-3. `ask.go` reads a check from `.jev-check/input/questions/<name>.json`, and its optional default state from `.jev-check/input/states/<name>.json`. It also holds `callJev`, the only function that sends a request.
-4. `secrets.go` scans the whole request. `callJev` and `cachedJev` scan again before they act, so no path to the API skips the scan.
-5. `gate.go` holds the cache. The key is the SHA-256 of the cache version, the endpoint, and the whole request. An entry is reused for less than 24 hours.
-6. `judge.go` compares each yes/no (`noul`) answer with its threshold and prints `ok` or `FAIL`. Choice and score answers print as `info` and never fail.
+1. `internal/jev/settings.go` reads `.jev-check/.env`. It refuses the file when Git tracks it, checks the endpoint (https, or http on loopback only), and picks the model: `--model`, then `JEV_CHECK_MODEL`, then `jev-latest`.
+2. `internal/workspace` reads `.jev-check/config.json` and lists the file tree with `git ls-files`, minus `exclude`. This is the shared part of every gate and eval request.
+3. `internal/catalog` reads a check from `.jev-check/input/questions/<name>.json`, and its optional default state from `.jev-check/input/states/<name>.json`. `internal/jev` holds `jev.Ask`, the only function that sends a request.
+4. `internal/secretscan` scans the whole request. `jev.Ask` and `jev.AskCached` scan again before they act, so no path to the API skips the scan.
+5. `internal/jev/cache.go` holds the cache. The key is the SHA-256 of the cache version, the endpoint, and the whole request. An entry is reused for less than 24 hours.
+6. `internal/verdict` compares each yes/no (`noul`) answer with its threshold and prints `ok` or `FAIL`. Choice and score answers print as `info` and never fail.
 
 Every command runs through the same dispatcher in `main.go`:
 
@@ -1037,15 +1037,16 @@ flowchart TD
 
 ## Layout
 
-- `ask.go` holds `list` and `ask`, and reads a project's checks.
-- `bundle.go` embeds the bundled checks and the folder guide, and holds `add`.
+The root package holds `main.go` and one file per command. Each command file parses flags and calls the packages in `internal/`, which never import the root.
+
+- `ask.go` holds `list` and `ask`. `bundle.go` embeds the bundled checks and the folder guide, and holds `add`. `context.go` holds `init` and `state`. `gate.go`, `eval.go`, `judge.go`, and `secrets.go` hold the commands of the same name. `settings.go` holds `doctor`.
+- `internal/workspace` reads `.jev-check/config.json`, builds the project state from it and the file tree, and loads `coding_style` documents.
+- `internal/catalog` finds a project's checks and copies bundled checks into a project.
+- `internal/jev` reads `.jev-check/.env`, sends requests to Jev, checks the answers, and caches them.
+- `internal/secretscan` scans patches and whole requests for secrets locally, before anything is sent.
+- `internal/verdict` applies thresholds to answers. `internal/patchset` reads the fixture patches for `eval`.
+- `internal/gitcmd` runs `git`. `internal/fsutil` reads and writes JSON and creates files.
 - `install.sh` installs a release binary. [`.github/workflows/release.yml`](.github/workflows/release.yml) builds the binaries when a `v*` tag is pushed.
-- `context.go` builds the project state from `.jev-check/config.json` and the file tree, and holds `init`.
-- `secrets.go` scans patches and whole requests for secrets locally, before anything is sent.
-- `judge.go` applies thresholds to answers.
-- `gate.go` runs the checks on one patch per staged file, with a cache.
-- `eval.go` tests a check's thresholds on its fixtures.
-- `settings.go` reads `.jev-check/.env` and holds `doctor`.
 - `main_test.go` and the other `*_test.go` files test every command offline with a fake Jev server. Run `go test ./...`.
 - `.jev-check-example/config.json` is this repository's configuration.
 - `.jev-check-example/input/questions/<name>.json` holds one check. `.jev-check-example/input/states/<name>.json` is an optional default state for it. Both are built into the binary, for `init` and `add` to copy.
