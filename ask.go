@@ -83,7 +83,7 @@ func listCmd(args []string, stdout, _ io.Writer) (int, error) {
 	if info, err := os.Stat(project); err != nil || !info.IsDir() {
 		return 0, fmt.Errorf("%s is not a folder", project)
 	}
-	entries, err := os.ReadDir(filepath.Join(project, jevDir, "input", "questions"))
+	entries, err := os.ReadDir(inputDir(project, "questions"))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return 0, err
 	}
@@ -96,7 +96,7 @@ func listCmd(args []string, stdout, _ io.Writer) (int, error) {
 			continue
 		}
 		if !checkName.MatchString(name) {
-			return 0, fmt.Errorf("%s: check names use only letters, digits, - and _", filepath.Join(project, jevDir, "input", "questions", e.Name()))
+			return 0, fmt.Errorf("%s: check names use only letters, digits, - and _", inputPath(project, "questions", name))
 		}
 		c, err := findCheck(project, name)
 		if err != nil {
@@ -254,9 +254,9 @@ type foundCheck struct {
 // from input/states/. It never reads the bundle: a project runs only the checks it holds.
 func findCheck(project, name string) (foundCheck, error) {
 	read := func(kind string) ([]byte, error) {
-		return os.ReadFile(filepath.Join(project, jevDir, "input", kind, name+".json"))
+		return os.ReadFile(inputPath(project, kind, name))
 	}
-	c := foundCheck{path: filepath.Join(project, jevDir, "input", "questions", name+".json")}
+	c := foundCheck{path: inputPath(project, "questions", name)}
 	data, err := read("questions")
 	if err != nil {
 		return c, err

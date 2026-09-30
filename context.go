@@ -198,7 +198,7 @@ func initCmd(args []string, stdout, _ io.Writer) (int, error) {
 	// A new input/questions/ gets every bundled check, the ones available to list in "checks".
 	// Later runs restore only the listed ones, so a check the user deleted stays deleted.
 	names := bundledNames()
-	if _, err := os.Stat(filepath.Join(dir, jevDir, "input", "questions")); err == nil {
+	if _, err := os.Stat(inputDir(dir, "questions")); err == nil {
 		names = nil
 		for _, c := range p.Checks {
 			if isBundled(c.Check) && !slices.Contains(names, c.Check) {
@@ -218,7 +218,7 @@ func initCmd(args []string, stdout, _ io.Writer) (int, error) {
   3. Check the setup: jev-check doctor %s
   4. Stage the work you want checked: git add -- <path>
   5. Run: jev-check gate %s
-`, path, filepath.Join(dir, jevDir, "input", "questions")+string(filepath.Separator),
+`, path, inputDir(dir, "questions")+string(filepath.Separator),
 		filepath.Join(dir, settingsFile), ignore, shellQuote(dir), shellQuote(dir))
 	return 0, nil
 }

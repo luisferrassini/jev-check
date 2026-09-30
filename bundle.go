@@ -27,6 +27,16 @@ func bundledPath(kind, name string) string {
 	return bundleDir + "/input/" + kind + "/" + name + ".json"
 }
 
+// inputDir returns dir/.jev-check/input/<kind>, the folder that holds a project's checks or states.
+func inputDir(dir, kind string) string {
+	return filepath.Join(dir, jevDir, "input", kind)
+}
+
+// inputPath returns dir/.jev-check/input/<kind>/<name>.json.
+func inputPath(dir, kind, name string) string {
+	return filepath.Join(inputDir(dir, kind), name+".json")
+}
+
 // bundledNames returns the names of the bundled checks, sorted.
 func bundledNames() []string {
 	files, _ := fs.Glob(bundled, bundleDir+"/input/questions/*.json")
@@ -42,7 +52,7 @@ func isBundled(name string) bool { return slices.Contains(bundledNames(), name) 
 
 // missingCheck explains a named check that project/.jev-check/input/ does not hold.
 func missingCheck(project, name string) error {
-	file := filepath.Join(project, jevDir, "input", "questions", name+".json")
+	file := inputPath(project, "questions", name)
 	if !isBundled(name) {
 		return fmt.Errorf("no check %q: %s does not exist (run jev-check list)", name, file)
 	}
@@ -114,7 +124,7 @@ func addChecks(dir string, names []string, stdout io.Writer) error {
 			} else if err != nil {
 				return err
 			}
-			if err := installFile(filepath.Join(dir, jevDir, "input", kind, name+".json"), string(data), stdout); err != nil {
+			if err := installFile(inputPath(dir, kind, name), string(data), stdout); err != nil {
 				return err
 			}
 		}
