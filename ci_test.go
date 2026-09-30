@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/luisferrassini/jev-check/internal/fsutil"
+	"github.com/luisferrassini/jev-check/internal/workspace"
 )
 
 // TestShippedChecksDryRun asks every shipped check with --dry-run, the way a user would,
@@ -24,7 +27,7 @@ func TestShippedChecksDryRun(t *testing.T) {
 			t.Errorf("list does not show %s:\n%s", name, list)
 		}
 		args := []string{"ask", "--dry-run", name}
-		if !fileExists(filepath.Join(sourceDir, bundleDir, "input/states", name+".json")) {
+		if !fsutil.FileExists(filepath.Join(sourceDir, bundleDir, "input/states", name+".json")) {
 			args = append(args, "--file", input)
 		}
 		var req request
@@ -51,7 +54,7 @@ func TestShippedConfigs(t *testing.T) {
 	for name, config := range map[string]string{"config.json": string(real), "README": readmeConfig(t)} {
 		repo := t.TempDir()
 		gitInit(t, repo)
-		writeFile(t, configPath(repo), config)
+		writeFile(t, workspace.ConfigPath(repo), config)
 		if out := wantCode(t, 0, "gate", repo); out != "nothing staged\n" {
 			t.Errorf("%s: gate: %s", name, out)
 		}

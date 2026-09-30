@@ -10,6 +10,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/luisferrassini/jev-check/internal/fsutil"
+	"github.com/luisferrassini/jev-check/internal/workspace"
 )
 
 const onlyQuestion = `{"questions":{"only":{"type":"noul","instructions":"Is it fine?"}}}`
@@ -76,12 +79,12 @@ func TestProjectChecks(t *testing.T) {
 	wantCode(t, 2, "add", "example", "no-such-check")
 	wantCode(t, 2, "add", "../x")
 	wantCode(t, 2, "add")
-	if fileExists(filepath.Join(project, ".jev-check/input/questions/example.json")) {
+	if fsutil.FileExists(filepath.Join(project, ".jev-check/input/questions/example.json")) {
 		t.Error("a failed add wrote a file")
 	}
 	elsewhere := t.TempDir()
 	wantCode(t, 0, "add", "--dir", elsewhere, "example")
-	if !fileExists(filepath.Join(elsewhere, ".jev-check/input/questions/example.json")) {
+	if !fsutil.FileExists(filepath.Join(elsewhere, ".jev-check/input/questions/example.json")) {
 		t.Error("add --dir did not write into DIR")
 	}
 	wantCode(t, 2, "add", "--dir", filepath.Join(elsewhere, "missing"), "example")
@@ -122,7 +125,7 @@ func TestProjectChecks(t *testing.T) {
 		repo := t.TempDir()
 		gitInit(t, repo)
 		writeFile(t, filepath.Join(repo, ".jev-check/input/questions/mine.json"), `{"questions":{"`+q+`":{"type":"noul"}}}`)
-		writeFile(t, configPath(repo), `{"exclude":[".jev-check/input/"],"checks":[{"check":"mine","threshold":0.5}]}`)
+		writeFile(t, workspace.ConfigPath(repo), `{"exclude":[".jev-check/input/"],"checks":[{"check":"mine","threshold":0.5}]}`)
 		writeFile(t, filepath.Join(repo, "a.txt"), "a\n")
 		gitRun(t, repo, "add", "a.txt")
 		*requests = nil
@@ -140,7 +143,7 @@ func TestProjectKeyAndOutput(t *testing.T) {
 
 	out := wantCode(t, 0, "ask", "public-release", "--file", file)
 	saved := strings.TrimSpace(out[strings.Index(out, "saved: ")+len("saved: "):])
-	if !strings.HasPrefix(saved, filepath.Join(project, ".jev-check", "output")+"/") || !fileExists(saved) {
+	if !strings.HasPrefix(saved, filepath.Join(project, ".jev-check", "output")+"/") || !fsutil.FileExists(saved) {
 		t.Errorf("saved path %q", saved)
 	}
 
@@ -160,7 +163,7 @@ func TestInit(t *testing.T) {
 	for _, dir := range []string{filepath.Join(notGit, "missing"), writeFile(t, filepath.Join(notGit, "file"), "x"), notGit, bare} {
 		wantCode(t, 2, "init", dir)
 	}
-	if fileExists(configPath(notGit)) {
+	if fsutil.FileExists(workspace.ConfigPath(notGit)) {
 		t.Error("init wrote into a non-git folder")
 	}
 
@@ -169,12 +172,12 @@ func TestInit(t *testing.T) {
 	sub := filepath.Join(repo, "sub dir")
 	os.Mkdir(sub, 0o755)
 	out := wantCode(t, 0, "init", sub)
-	config := configPath(sub)
+	config := workspace.ConfigPath(sub)
 	if !strings.Contains(out, config) || !strings.Contains(out, "jev-check gate '"+sub+"'") {
 		t.Errorf("init output, want the config path and a quoted gate command:\n%s", out)
 	}
-	var p project
-	if err := readJSON(config, &p); err != nil || len(p.Checks) != 1 || p.Checks[0].Check != "public-release" ||
+	var p workspace.Project
+	if err := fsutil.ReadJSON(config, &p); err != nil || len(p.Checks) != 1 || p.Checks[0].Check != "public-release" ||
 		*p.Checks[0].Threshold != 0.5 || strings.Join(p.Exclude, ",") != ".jev-check/" || p.Checks[0].Skip[0] != "LICENSE" {
 		t.Errorf("init config %+v, %v", p, err)
 	}
@@ -192,7 +195,7 @@ func TestInit(t *testing.T) {
 	if out := wantCode(t, 0, "gate", sub); out != "nothing staged\n" {
 		t.Errorf("gate after init: %s", out)
 	}
-	if fileExists(filepath.Join(sub, ".jev-check", "output")) {
+	if fsutil.FileExists(filepath.Join(sub, ".jev-check", "output")) {
 		t.Error("init, context, or an empty gate created output/")
 	}
 
@@ -205,14 +208,14 @@ func TestInit(t *testing.T) {
 	if entries, _ := os.ReadDir(checks); len(entries) != len(bundledNames()) {
 		t.Errorf("init copied %v, want every bundled check %v", entries, bundledNames())
 	}
-	if !fileExists(filepath.Join(sub, ".jev-check", "input", "states", "example.json")) {
+	if !fsutil.FileExists(filepath.Join(sub, ".jev-check", "input", "states", "example.json")) {
 		t.Error("init did not copy the example state")
 	}
 	if list := wantCode(t, 0, "list", sub); !strings.Contains(list, "public-release [project, gate 0.5, needs --file]") ||
 		!strings.Contains(list, "no-leftovers [project, not in checks, needs --file]") {
 		t.Errorf("list after init does not show which checks the gate runs:\n%s", list)
 	}
-	if !fileExists(filepath.Join(sub, ".jev-check", "README.md")) {
+	if !fsutil.FileExists(filepath.Join(sub, ".jev-check", "README.md")) {
 		t.Error("init wrote no README.md")
 	}
 
@@ -236,12 +239,12 @@ func TestInit(t *testing.T) {
 	}
 	os.Remove(filepath.Join(checks, "no-leftovers.json"))
 	wantCode(t, 0, "init", sub)
-	if fileExists(filepath.Join(checks, "no-leftovers.json")) {
+	if fsutil.FileExists(filepath.Join(checks, "no-leftovers.json")) {
 		t.Error("init brought back a deleted check the config does not name")
 	}
 	writeFile(t, config, `{"checks":[{"check":"no-leftovers","threshold":0.5},{"check":"mine","threshold":0.5}]}`)
 	wantCode(t, 0, "init", sub)
-	if !fileExists(filepath.Join(checks, "no-leftovers.json")) || fileExists(filepath.Join(checks, "mine.json")) {
+	if !fsutil.FileExists(filepath.Join(checks, "no-leftovers.json")) || fsutil.FileExists(filepath.Join(checks, "mine.json")) {
 		t.Error("init did not restore exactly the bundled checks the config names")
 	}
 	writeFile(t, config, "{")
@@ -272,7 +275,7 @@ func TestInit(t *testing.T) {
 	wantCode(t, 2, "init", notDir)
 	link := t.TempDir()
 	gitInit(t, link)
-	os.Symlink("elsewhere.json", configPath(link))
+	os.Symlink("elsewhere.json", workspace.ConfigPath(link))
 	wantCode(t, 2, "init", link)
 
 	// Concurrent runs create one complete config. A run that finds it half written may fail, never corrupt it.
@@ -294,7 +297,7 @@ func TestInit(t *testing.T) {
 			ok++
 		}
 	}
-	if err := readJSON(configPath(race), &p); ok == 0 || err != nil || len(p.Checks) != 1 {
+	if err := fsutil.ReadJSON(workspace.ConfigPath(race), &p); ok == 0 || err != nil || len(p.Checks) != 1 {
 		t.Errorf("%d inits succeeded, config error %v", ok, err)
 	}
 }
@@ -369,11 +372,11 @@ func TestInstalledBinary(t *testing.T) {
 		t.Helper()
 		return runBin(repo, "sh", "-c", `ulimit -f 0 && exec jev-check init .`)
 	}
-	if code, out := initFull(); code != 2 || !strings.Contains(out, "writing ") || fileExists(filepath.Join(repo, ".jev-check")) {
-		t.Errorf("init with a full disk: exit %d, .jev-check left: %v\n%s", code, fileExists(filepath.Join(repo, ".jev-check")), out)
+	if code, out := initFull(); code != 2 || !strings.Contains(out, "writing ") || fsutil.FileExists(filepath.Join(repo, ".jev-check")) {
+		t.Errorf("init with a full disk: exit %d, .jev-check left: %v\n%s", code, fsutil.FileExists(filepath.Join(repo, ".jev-check")), out)
 	}
 	writeSettings(t, repo, fakeSettings)
-	if code, out := initFull(); code != 2 || !strings.Contains(out, "writing ") || fileExists(configPath(repo)) || !fileExists(filepath.Join(repo, settingsFile)) {
+	if code, out := initFull(); code != 2 || !strings.Contains(out, "writing ") || fsutil.FileExists(workspace.ConfigPath(repo)) || !fsutil.FileExists(filepath.Join(repo, settingsFile)) {
 		t.Errorf("init with a full disk: exit %d\n%s", code, out)
 	}
 }
@@ -390,11 +393,11 @@ func TestOldLayout(t *testing.T) {
 	for _, args := range [][]string{{"gate", repo}, {"eval", "public-release", repo}, {"state", repo}} {
 		var stdout, stderr strings.Builder
 		if code := run(args, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), old) ||
-			!strings.Contains(stderr.String(), configPath(repo)) || !strings.Contains(stderr.String(), "git mv project-context.json .jev-check/config.json") {
+			!strings.Contains(stderr.String(), workspace.ConfigPath(repo)) || !strings.Contains(stderr.String(), "git mv project-context.json .jev-check/config.json") {
 			t.Errorf("%v: exit %d\n%s", args, code, stderr.String())
 		}
 	}
-	if len(*requests) != 0 || fileExists(filepath.Join(repo, "output")) || fileExists(filepath.Join(repo, ".jev-check", "output")) {
+	if len(*requests) != 0 || fsutil.FileExists(filepath.Join(repo, "output")) || fsutil.FileExists(filepath.Join(repo, ".jev-check", "output")) {
 		t.Errorf("old layout sent %d requests or wrote output", len(*requests))
 	}
 

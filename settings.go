@@ -11,14 +11,16 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-)
 
-// jevDir holds every file jev-check reads or writes in a project, relative to the project.
-const jevDir = ".jev-check"
+	"github.com/luisferrassini/jev-check/internal/fsutil"
+	"github.com/luisferrassini/jev-check/internal/gitcmd"
+	"github.com/luisferrassini/jev-check/internal/secretscan"
+	"github.com/luisferrassini/jev-check/internal/workspace"
+)
 
 // settingsFile holds jev-check's key, endpoint, and model, relative to the project.
 // Nothing else is read for them: not the environment, not the project's own .env.
-const settingsFile = jevDir + "/.env"
+const settingsFile = workspace.JevDir + "/.env"
 
 const (
 	defaultEndpoint = "https://api.typesafe.ai/v1/systemone"
@@ -57,12 +59,12 @@ func readSettings(project string) (map[string]string, string, error) {
 	path := filepath.Join(project, settingsFile)
 	// Outside a Git repository, as ask allows, there is nothing to be tracked in. Any other
 	// failure, such as a repository Git refuses for its owner, could hide a tracked file.
-	_, err := git(project, "rev-parse", "--is-inside-work-tree")
+	_, err := gitcmd.Git(project, "rev-parse", "--is-inside-work-tree")
 	if err != nil && !strings.Contains(err.Error(), "not a git repository") {
 		return nil, path, fmt.Errorf("checking whether %s is tracked by Git: %w", path, err)
 	}
 	if err == nil {
-		out, err := git(project, "ls-files", "-z", "--", settingsFile)
+		out, err := gitcmd.Git(project, "ls-files", "-z", "--", settingsFile)
 		if err != nil {
 			return nil, path, err
 		}
@@ -156,7 +158,7 @@ func doctorCmd(args []string, stdout, _ io.Writer) (int, error) {
 
 	values, path, err := readSettings(dir)
 	missing := ""
-	if !fileExists(path) {
+	if !fsutil.FileExists(path) {
 		missing = " missing"
 	}
 	line("settings file", path+missing, err)
@@ -168,7 +170,7 @@ func doctorCmd(args []string, stdout, _ io.Writer) (int, error) {
 			return "default"
 		}
 		s, err := loadSettings(dir, "")
-		if err := scanRequest(request{Model: s.model}); err != nil {
+		if err := secretscan.ScanRequest(request{Model: s.model}); err != nil {
 			return 0, err
 		}
 		line("endpoint", s.endpoint+" ("+source("JEV_CHECK_ENDPOINT")+")", err)
@@ -187,30 +189,30 @@ func doctorCmd(args []string, stdout, _ io.Writer) (int, error) {
 		}
 	}
 
-	config := configPath(dir)
-	p, err := loadProject(dir)
+	config := workspace.ConfigPath(dir)
+	p, err := workspace.LoadProject(dir)
 	if err == nil {
 		_, err = validateChecks(dir, p.Checks)
 	}
 	if err == nil {
-		_, _, err = loadStyles(dir, p.Checks)
+		_, _, err = workspace.LoadStyles(dir, p.Checks)
 	}
 	if err != nil && !strings.Contains(err.Error(), config) {
 		err = fmt.Errorf("%s: %w", config, err)
 	}
 	line("project", config, err)
 	// With no new config, loadProject already reported the old one.
-	for _, old := range []string{filepath.Join(dir, "project-context.json"), filepath.Join(dir, jevDir, "project-context.json")} {
-		if fileExists(old) && fileExists(config) {
+	for _, old := range []string{filepath.Join(dir, "project-context.json"), filepath.Join(dir, workspace.JevDir, "project-context.json")} {
+		if fsutil.FileExists(old) && fsutil.FileExists(config) {
 			line("old layout", "", fmt.Errorf("%s is ignored; delete it or move it over %s", old, config))
 		}
 	}
 
-	out := filepath.Join(dir, jevDir, "output")
-	if !fileExists(out) {
-		out = filepath.Join(dir, jevDir)
+	out := filepath.Join(dir, workspace.JevDir, "output")
+	if !fsutil.FileExists(out) {
+		out = filepath.Join(dir, workspace.JevDir)
 	}
-	_, err = git(dir, "rev-parse", "--is-inside-work-tree")
+	_, err = gitcmd.Git(dir, "rev-parse", "--is-inside-work-tree")
 	if err == nil {
 		var probe *os.File
 		if probe, err = os.CreateTemp(out, ".doctor-probe-*"); err == nil {

@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/luisferrassini/jev-check/internal/fsutil"
 )
 
 const judgeUsage = `Usage: jev-check judge OUTPUT.json THRESHOLD [QUESTION=THRESHOLD]...
@@ -26,7 +28,7 @@ func judgeCmd(args []string, stdout, _ io.Writer) (int, error) {
 		Request  request  `json:"request"`
 		Response response `json:"response"`
 	}
-	if err := readJSON(args[0], &saved); err != nil {
+	if err := fsutil.ReadJSON(args[0], &saved); err != nil {
 		return 0, err
 	}
 	answers := saved.Response.Answers

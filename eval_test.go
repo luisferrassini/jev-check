@@ -7,6 +7,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/luisferrassini/jev-check/internal/fsutil"
+	"github.com/luisferrassini/jev-check/internal/gitcmd"
+	"github.com/luisferrassini/jev-check/internal/workspace"
 )
 
 // gitPatch returns the patch git makes for staging content at path in a fresh repository.
@@ -16,7 +20,7 @@ func gitPatch(t *testing.T, path, content string) string {
 	gitInit(t, repo)
 	writeFile(t, filepath.Join(repo, path), content)
 	gitRun(t, repo, "add", "--", path)
-	out, err := git(repo, "diff", "--cached", "--", path)
+	out, err := gitcmd.Git(repo, "diff", "--cached", "--", path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +38,7 @@ func evalProject(t *testing.T, config string) (string, string) {
 	repo := t.TempDir()
 	gitInit(t, repo)
 	writeFile(t, filepath.Join(repo, ".jev-check/input/questions/two.json"), twoQuestions)
-	writeFile(t, configPath(repo), `{"exclude":[".jev-check/fixtures/",".jev-check/input/"],"checks":[`+config+`]}`)
+	writeFile(t, workspace.ConfigPath(repo), `{"exclude":[".jev-check/fixtures/",".jev-check/input/"],"checks":[`+config+`]}`)
 	return repo, filepath.Join(repo, ".jev-check", "fixtures", "two")
 }
 
@@ -71,12 +75,12 @@ func TestEvalCoverage(t *testing.T) {
 	os.MkdirAll(filepath.Join(fixtures, "pass", "dir.patch"), 0o755)
 	wantCode(t, 2, "eval", "two", repo)
 	os.Remove(filepath.Join(fixtures, "pass", "dir.patch"))
-	if len(*requests) != 0 || fileExists(filepath.Join(repo, ".jev-check", "output")) {
+	if len(*requests) != 0 || fsutil.FileExists(filepath.Join(repo, ".jev-check", "output")) {
 		t.Fatalf("%d requests before the suite was complete", len(*requests))
 	}
 
 	// Equality passes: a pass fixture at the threshold passes, a fail fixture at it misses.
-	writeFile(t, configPath(repo), `{"exclude":[".jev-check/fixtures/",".jev-check/input/"],"checks":[{"check":"two","threshold":0.9}]}`)
+	writeFile(t, workspace.ConfigPath(repo), `{"exclude":[".jev-check/fixtures/",".jev-check/input/"],"checks":[{"check":"two","threshold":0.9}]}`)
 	out := wantCode(t, 1, "eval", "two", repo)
 	for _, want := range []string{
 		"positive  negative  question\n1         1         q1\n1         1         q2\n",
@@ -93,7 +97,7 @@ func TestEvalCoverage(t *testing.T) {
 
 	// Only the named question counts on a fail fixture; per_question overrides apply.
 	jevAnswers = ""
-	writeFile(t, configPath(repo), `{"exclude":[".jev-check/fixtures/",".jev-check/input/"],"checks":[{"check":"two","threshold":0.5,"per_question":{"q2":0.95}}]}`)
+	writeFile(t, workspace.ConfigPath(repo), `{"exclude":[".jev-check/fixtures/",".jev-check/input/"],"checks":[{"check":"two","threshold":0.5,"per_question":{"q2":0.95}}]}`)
 	os.RemoveAll(filepath.Join(fixtures, "fail"))
 	writeFile(t, filepath.Join(fixtures, "fail", "q1", "b.patch"), gitPatch(t, "bad-q1.go", "package b\n"))
 	writeFile(t, filepath.Join(fixtures, "fail", "q2", "c.patch"), gitPatch(t, "bad-q2.go", "package c\n"))
@@ -101,7 +105,7 @@ func TestEvalCoverage(t *testing.T) {
 	if !strings.Contains(out, "MISS  0.9  q2  pass/a.patch fails it\n") || !strings.HasSuffix(out, "eval: 1 misses in 3 fixtures\n") {
 		t.Errorf("eval output:\n%s", out)
 	}
-	writeFile(t, configPath(repo), `{"exclude":[".jev-check/fixtures/",".jev-check/input/"],"checks":[{"check":"two","threshold":0.5}]}`)
+	writeFile(t, workspace.ConfigPath(repo), `{"exclude":[".jev-check/fixtures/",".jev-check/input/"],"checks":[{"check":"two","threshold":0.5}]}`)
 	wantCode(t, 0, "eval", "two", repo)
 
 	// A malformed last fixture stops the run even when the others are cached.
@@ -163,7 +167,7 @@ func TestPatchPaths(t *testing.T) {
 		"pure": {names["pure"], "p new.txt"}, "hunk": {"hunk.txt"},
 	}
 	for kind, paths := range want {
-		patch, err := git(src, append([]string{"diff", "--cached", "-M", "--"}, paths...)...)
+		patch, err := gitcmd.Git(src, append([]string{"diff", "--cached", "-M", "--"}, paths...)...)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -179,7 +183,7 @@ func TestPatchPaths(t *testing.T) {
 	gitInit(t, raw)
 	writeFile(t, filepath.Join(raw, "raw ü.txt"), "x\n")
 	gitRun(t, raw, "add", ".")
-	patch, err := git(raw, "-c", "core.quotePath=false", "diff", "--cached")
+	patch, err := gitcmd.Git(raw, "-c", "core.quotePath=false", "diff", "--cached")
 	if err != nil || strings.Contains(patch, `"`) {
 		t.Fatalf("unquoted patch: %v\n%s", err, patch)
 	}
@@ -201,12 +205,12 @@ func TestPatchPaths(t *testing.T) {
 	}
 
 	// Unsupported or unsafe patches stop the run without echoing their content.
-	multi, _ := git(src, "diff", "--cached", "-M")
+	multi, _ := gitcmd.Git(src, "diff", "--cached", "-M")
 	bin := t.TempDir()
 	gitInit(t, bin)
 	writeFile(t, filepath.Join(bin, "b.bin"), "\x00\x01secret-content\x00")
 	gitRun(t, bin, "add", ".")
-	binary, _ := git(bin, "diff", "--cached")
+	binary, _ := gitcmd.Git(bin, "diff", "--cached")
 	for name, bad := range map[string]string{
 		"multi":     multi,
 		"escape":    "diff --git \"a/x\\q\" \"b/x\\q\"\n--- /dev/null\n+++ \"b/x\\q\"\n@@ -0,0 +1 @@\n+secret-content\n",
@@ -251,7 +255,7 @@ func TestEvalGateParity(t *testing.T) {
 	}
 	gateReq := (*requests)[0]
 
-	patch, err := git(repo, "diff", "--cached", "--relative", "--", "dir/a.go")
+	patch, err := gitcmd.Git(repo, "diff", "--cached", "--relative", "--", "dir/a.go")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,7 +289,7 @@ func TestEvalThresholdEnds(t *testing.T) {
 		{"1", "0.999", "eval: 2 misses in 3 fixtures\n"},
 	} {
 		jevAnswers = answers(c.answer)
-		writeFile(t, configPath(repo), `{"exclude":[".jev-check/fixtures/",".jev-check/input/"],"checks":[{"check":"two","threshold":`+c.threshold+`}]}`)
+		writeFile(t, workspace.ConfigPath(repo), `{"exclude":[".jev-check/fixtures/",".jev-check/input/"],"checks":[{"check":"two","threshold":`+c.threshold+`}]}`)
 		out := wantCode(t, 1, "eval", "two", repo, "--no-cache")
 		passFails := strings.Contains(out, "pass/a.patch fails")
 		if !strings.HasSuffix(out, c.want) || passFails != (c.answer == "0.999") {

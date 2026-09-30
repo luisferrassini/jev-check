@@ -8,12 +8,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/luisferrassini/jev-check/internal/fsutil"
+	"github.com/luisferrassini/jev-check/internal/gitcmd"
+	"github.com/luisferrassini/jev-check/internal/secretscan"
+	"github.com/luisferrassini/jev-check/internal/workspace"
 )
 
 const gateUsage = `Usage: jev-check gate [DIR] [--no-cache] [--model ID]   (default: .)
@@ -33,33 +37,6 @@ tree stops the gate; one in a check's questions skips that check; one in a
 patch skips that file.
 Exit 0 pass, 1 fail or a secret found, 2 usage or API error.
 `
-
-// gateCheck is one entry of "checks" in config.json.
-type gateCheck struct {
-	Check       string             `json:"check"`
-	Threshold   *float64           `json:"threshold"`
-	PerQuestion map[string]float64 `json:"per_question"`
-	Skip        []string           `json:"skip"`
-	// CodingStyle is the raw coding_style value, so null can be told apart from a missing field.
-	CodingStyle json.RawMessage `json:"coding_style"`
-}
-
-// limit is the threshold for question q: its per_question value, else the check's threshold.
-func (c gateCheck) limit(q string) float64 {
-	if t, ok := c.PerQuestion[q]; ok {
-		return t
-	}
-	return *c.Threshold
-}
-
-// fileState is a copy of state with one file's patch and the check's coding_style document.
-// Each patch is named after its file, so the state key tells Jev which file it reads.
-func fileState(state map[string]any, file, patch, stylePath string, styles map[string]string) map[string]any {
-	out := maps.Clone(state)
-	out["files"] = map[string]string{file + ".patch": patch}
-	addStyle(out, stylePath, styles)
-	return out
-}
 
 func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	dir, model, noCache := "", "", false
@@ -93,27 +70,27 @@ func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	p, err := loadProject(dir)
+	p, err := workspace.LoadProject(dir)
 	if err != nil {
 		return 0, err
 	}
 	questions, err := validateChecks(dir, p.Checks)
 	if err != nil {
-		return 0, fmt.Errorf("%s: %w", configPath(dir), err)
+		return 0, fmt.Errorf("%s: %w", workspace.ConfigPath(dir), err)
 	}
-	stylePaths, styles, err := loadStyles(dir, p.Checks)
+	stylePaths, styles, err := workspace.LoadStyles(dir, p.Checks)
 	if err != nil {
-		return 0, fmt.Errorf("%s: %w", configPath(dir), err)
+		return 0, fmt.Errorf("%s: %w", workspace.ConfigPath(dir), err)
 	}
-	state, err := projectState(dir, p)
+	state, err := workspace.ProjectState(dir, p)
 	if err != nil {
 		return 0, err
 	}
 	// Shared content goes with every request, so a secret there stops the gate before any request.
 	// A coding_style document counts as shared, even when one check uses it.
-	err = styleSecrets(styles)
+	err = secretscan.StyleSecrets(styles)
 	if err == nil {
-		err = scanRequest(request{Model: cfg.model, State: state})
+		err = secretscan.ScanRequest(request{Model: cfg.model, State: state})
 	}
 	if err != nil {
 		fmt.Fprintf(stdout, "%v\ngate: FAIL\n", err)
@@ -124,12 +101,12 @@ func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	// A check whose questions look like they hold a secret is skipped; the others still run.
 	blocked := map[int]bool{}
 	for i, c := range p.Checks {
-		if err := scanRequest(request{Questions: questions[i]}); err != nil {
+		if err := secretscan.ScanRequest(request{Questions: questions[i]}); err != nil {
 			fmt.Fprintf(stdout, "== %s questions\n%v\n", c.Check, err)
 			blocked[i], status = true, 1
 		}
 	}
-	files, err := stagedFiles(dir, p.Exclude)
+	files, err := gitcmd.StagedFiles(dir, p.Exclude)
 	if err != nil {
 		return 0, err
 	}
@@ -139,17 +116,17 @@ func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	}
 	// label names a file in output, unless its name could leak a secret or forge a line.
 	label := func(file string) string {
-		return safeLabel(file, fmt.Sprintf("staged file %d", slices.Index(files, file)+1))
+		return secretscan.SafeLabel(file, fmt.Sprintf("staged file %d", slices.Index(files, file)+1))
 	}
 
 	patches := map[string]string{}
 	for _, file := range files {
-		patch, err := git(dir, "diff", "--cached", "--relative", "--", ":(literal)"+file)
+		patch, err := gitcmd.Git(dir, "diff", "--cached", "--relative", "--", ":(literal)"+file)
 		if err != nil {
 			return 0, err
 		}
 		// A patch that looks like it holds a secret is never sent.
-		if reports := secretReports(label(file)+".patch", patch, true); reports != nil {
+		if reports := secretscan.SecretReports(label(file)+".patch", patch, true); reports != nil {
 			for _, report := range reports {
 				fmt.Fprintln(stdout, report)
 			}
@@ -163,7 +140,7 @@ func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 		if blocked[i] {
 			continue
 		}
-		checkFiles, err := stagedFiles(dir, append(slices.Clone(p.Exclude), c.Skip...))
+		checkFiles, err := gitcmd.StagedFiles(dir, append(slices.Clone(p.Exclude), c.Skip...))
 		if err != nil {
 			return 0, err
 		}
@@ -172,9 +149,9 @@ func gateCmd(args []string, stdout, stderr io.Writer) (int, error) {
 			if !ok {
 				continue
 			}
-			req := request{Model: cfg.model, Questions: questions[i], State: fileState(state, file, patch, stylePaths[i], styles)}
+			req := request{Model: cfg.model, Questions: questions[i], State: workspace.FileState(state, file, patch, stylePaths[i], styles)}
 			res, cached, err := cachedJev(dir, c.Check, cfg, req, noCache, stderr)
-			var found secretsFound
+			var found secretscan.SecretsFound
 			switch {
 			case errors.As(err, &found):
 				fmt.Fprintf(stdout, "== %s %s\n%v\n", c.Check, label(file), found)
@@ -226,7 +203,7 @@ func fresh(created, now time.Time) bool {
 // noCache skips the lookup but still saves the new answers.
 func cachedJev(project, name string, cfg settings, req request, noCache bool, stderr io.Writer) (response, bool, error) {
 	// Scan before the cache, so an old answer never hides a secret.
-	if err := scanRequest(req); err != nil {
+	if err := secretscan.ScanRequest(req); err != nil {
 		return response{}, false, err
 	}
 	// json.Marshal sorts map keys, so the same request always gives the same key.
@@ -239,9 +216,9 @@ func cachedJev(project, name string, cfg settings, req request, noCache bool, st
 		return response{}, false, err
 	}
 	sum := sha256.Sum256(key)
-	path := filepath.Join(project, jevDir, "output", "cache", "v2", hex.EncodeToString(sum[:])+".json")
+	path := filepath.Join(project, workspace.JevDir, "output", "cache", "v2", hex.EncodeToString(sum[:])+".json")
 	var entry cacheEntry
-	if !noCache && readJSON(path, &entry) == nil && entry.Version == cacheVersion {
+	if !noCache && fsutil.ReadJSON(path, &entry) == nil && entry.Version == cacheVersion {
 		created, err := time.Parse(time.RFC3339, entry.CreatedAt)
 		if err == nil && fresh(created, time.Now()) && validateAnswers(entry.Response.Answers, req.Questions) == nil {
 			return entry.Response, true, nil
@@ -288,7 +265,7 @@ func writeCache(path string, entry cacheEntry) error {
 }
 
 // validateChecks checks the gate config before any API call and returns each check's questions.
-func validateChecks(project string, checks []gateCheck) ([]map[string]json.RawMessage, error) {
+func validateChecks(project string, checks []workspace.GateCheck) ([]map[string]json.RawMessage, error) {
 	if len(checks) == 0 {
 		return nil, errors.New(`needs a "checks" list, each with "check" and "threshold"`)
 	}
@@ -315,11 +292,4 @@ func validateChecks(project string, checks []gateCheck) ([]map[string]json.RawMe
 		all = append(all, loaded.questions)
 	}
 	return all, nil
-}
-
-// stagedFiles lists the staged files in dir, minus the exclude pathspecs.
-// A git error stops the gate, so a failure never looks like "nothing staged".
-func stagedFiles(dir string, exclude []string) ([]string, error) {
-	out, err := git(dir, append([]string{"diff", "--cached", "--relative", "--name-only", "-z", "--", "."}, excludes(exclude)...)...)
-	return splitNUL(out), err
 }

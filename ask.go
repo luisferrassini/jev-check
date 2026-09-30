@@ -16,6 +16,10 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/luisferrassini/jev-check/internal/fsutil"
+	"github.com/luisferrassini/jev-check/internal/secretscan"
+	"github.com/luisferrassini/jev-check/internal/workspace"
 )
 
 const askUsage = `Usage:
@@ -79,7 +83,7 @@ func listCmd(args []string, stdout, _ io.Writer) (int, error) {
 	if len(args) > 1 {
 		return 0, errors.New("expected at most one DIR")
 	}
-	var p project // the config, declared before the local project shadows the type
+	var p workspace.Project // the config, declared before the local project shadows the type
 	project := cmp.Or(append(args, ".")...)
 	if info, err := os.Stat(project); err != nil || !info.IsDir() {
 		return 0, fmt.Errorf("%s is not a folder", project)
@@ -89,7 +93,7 @@ func listCmd(args []string, stdout, _ io.Writer) (int, error) {
 		return 0, err
 	}
 	// Without a readable config, list still shows the checks, just not which ones the gate runs.
-	hasConfig := readJSON(configPath(project), &p) == nil
+	hasConfig := fsutil.ReadJSON(workspace.ConfigPath(project), &p) == nil
 	var have []string
 	for _, e := range entries {
 		name, ok := strings.CutSuffix(e.Name(), ".json")
@@ -106,7 +110,7 @@ func listCmd(args []string, stdout, _ io.Writer) (int, error) {
 		tag := "project"
 		if hasConfig {
 			tag += ", not in checks"
-			if i := slices.IndexFunc(p.Checks, func(g gateCheck) bool { return g.Check == name }); i >= 0 && p.Checks[i].Threshold != nil {
+			if i := slices.IndexFunc(p.Checks, func(g workspace.GateCheck) bool { return g.Check == name }); i >= 0 && p.Checks[i].Threshold != nil {
 				tag = fmt.Sprintf("project, gate %g", *p.Checks[i].Threshold)
 			}
 		}
@@ -194,7 +198,7 @@ func askCmd(args []string, stdout, _ io.Writer) (int, error) {
 	state := map[string]any{}
 	switch {
 	case len(positional) == 2:
-		err = readJSON(positional[1], &state)
+		err = fsutil.ReadJSON(positional[1], &state)
 	case c.state != nil:
 		if err = json.Unmarshal(c.state, &state); err != nil {
 			err = fmt.Errorf("invalid JSON in the default state of %s: %w", name, err)
@@ -224,11 +228,11 @@ func askCmd(args []string, stdout, _ io.Writer) (int, error) {
 	}
 
 	req := request{Model: cfg.model, Questions: c.questions, State: state}
-	if err := scanRequest(req); err != nil {
+	if err := secretscan.ScanRequest(req); err != nil {
 		return 0, err
 	}
 	if dryRun {
-		return 0, writeJSON(stdout, req)
+		return 0, fsutil.WriteJSON(stdout, req)
 	}
 	res, saved, err := callJev(project, name, cfg, req)
 	if err != nil {
@@ -356,7 +360,7 @@ func validateAnswers(answers map[string]answer, questions map[string]json.RawMes
 func callJev(project, name string, cfg settings, req request) (response, string, error) {
 	var res response
 	// Every path to the API passes here, so nothing that looks like a secret is sent.
-	if err := scanRequest(req); err != nil {
+	if err := secretscan.ScanRequest(req); err != nil {
 		return res, "", err
 	}
 	if cfg.key == "" {
@@ -394,7 +398,7 @@ func callJev(project, name string, cfg settings, req request) (response, string,
 		return res, "", fmt.Errorf("unexpected API response: %w", err)
 	}
 
-	dir := filepath.Join(project, jevDir, "output")
+	dir := filepath.Join(project, workspace.JevDir, "output")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return res, "", err
 	}
@@ -404,7 +408,7 @@ func callJev(project, name string, cfg settings, req request) (response, string,
 		return res, "", err
 	}
 	defer f.Close()
-	err = writeJSON(f, struct {
+	err = fsutil.WriteJSON(f, struct {
 		Request  request         `json:"request"`
 		Response json.RawMessage `json:"response"`
 	}{req, raw})

@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/luisferrassini/jev-check/internal/fsutil"
+	"github.com/luisferrassini/jev-check/internal/workspace"
 )
 
 // optInChecks are the bundled opt-in checks whose corpora TestOptInCorpora covers.
@@ -32,7 +35,7 @@ func TestOptInCorpora(t *testing.T) {
 			var check struct {
 				Questions map[string]json.RawMessage `json:"questions"`
 			}
-			if err := readJSON(filepath.Join(sourceDir, bundleDir, "input", "questions", name+".json"), &check); err != nil {
+			if err := fsutil.ReadJSON(filepath.Join(sourceDir, bundleDir, "input", "questions", name+".json"), &check); err != nil {
 				t.Fatal(err)
 			}
 			corpus := filepath.Join(sourceDir, bundleDir, "fixtures", name)
@@ -51,7 +54,7 @@ func TestOptInCorpora(t *testing.T) {
 			if pass, _ := filepath.Glob(filepath.Join(corpus, "pass", "*.patch")); len(pass) < opt.minPass {
 				t.Errorf("pass has %d fixtures, want at least %d", len(pass), opt.minPass)
 			}
-			if !fileExists(filepath.Join(corpus, "CALIBRATION.md")) {
+			if !fsutil.FileExists(filepath.Join(corpus, "CALIBRATION.md")) {
 				t.Error("no CALIBRATION.md")
 			}
 
@@ -66,7 +69,7 @@ func TestOptInCorpora(t *testing.T) {
 				writeFile(t, filepath.Join(repo, opt.codingStyle), string(content))
 				style = `,"coding_style":"` + opt.codingStyle + `"`
 			}
-			writeFile(t, configPath(repo), `{"exclude":[".jev-check/fixtures/"],"checks":[{"check":"`+name+`","threshold":0.5`+style+`}]}`)
+			writeFile(t, workspace.ConfigPath(repo), `{"exclude":[".jev-check/fixtures/"],"checks":[{"check":"`+name+`","threshold":0.5`+style+`}]}`)
 			if err := os.CopyFS(filepath.Join(repo, ".jev-check", "fixtures", name), os.DirFS(corpus)); err != nil {
 				t.Fatal(err)
 			}

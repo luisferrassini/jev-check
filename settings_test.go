@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/luisferrassini/jev-check/internal/workspace"
 )
 
 // wantErr runs a command that must exit 2 with want in its error, and returns the error output.
@@ -163,7 +165,7 @@ func TestEndpointSetting(t *testing.T) {
 	project, _ := os.Getwd()
 	repo := t.TempDir()
 	gitInit(t, repo)
-	writeFile(t, configPath(repo), `{"checks":[{"check":"public-release","threshold":0.5}]}`)
+	writeFile(t, workspace.ConfigPath(repo), `{"checks":[{"check":"public-release","threshold":0.5}]}`)
 	for _, bad := range []string{
 		"not a url", "/v1/systemone", "api.typesafe.ai/v1", "https:///v1", "ftp://127.0.0.1/",
 		"http://api.typesafe.ai/v1", "http://10.0.0.1/", "http://localhost.example.com/",
@@ -209,7 +211,7 @@ func TestDoctor(t *testing.T) {
 	good := "TYPESAFE_API_KEY=" + key + "\nJEV_CHECK_ENDPOINT=" + fakeEndpoint + "\n"
 	writeSettings(t, repo, good)
 	config := `{"checks":[{"check":"public-release","threshold":0.5}]}`
-	writeFile(t, configPath(repo), config)
+	writeFile(t, workspace.ConfigPath(repo), config)
 
 	out := wantCode(t, 0, "doctor", repo)
 	for _, want := range []string{
@@ -217,7 +219,7 @@ func TestDoctor(t *testing.T) {
 		"ok    endpoint  " + fakeEndpoint + " (" + settings + ")\n",
 		"ok    model  jev-latest (default)\n",
 		"ok    API key  set\n",
-		"ok    project  " + configPath(repo) + "\n",
+		"ok    project  " + workspace.ConfigPath(repo) + "\n",
 		"ok    git and output  " + filepath.Join(repo, ".jev-check") + " is writable\n",
 		"doctor: ok; the key and the service were not tested\n",
 	} {
@@ -249,9 +251,9 @@ func TestDoctor(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			writeSettings(t, repo, c.settings)
-			os.Remove(configPath(repo))
+			os.Remove(workspace.ConfigPath(repo))
 			if c.config != "" {
-				writeFile(t, configPath(repo), c.config)
+				writeFile(t, workspace.ConfigPath(repo), c.config)
 			}
 			want := 2
 			if c.want == "" {
@@ -263,19 +265,19 @@ func TestDoctor(t *testing.T) {
 		})
 	}
 	writeSettings(t, repo, good)
-	writeFile(t, configPath(repo), config)
+	writeFile(t, workspace.ConfigPath(repo), config)
 
 	// A config left at the root is ignored, so it is a problem even next to the new one.
 	old := writeFile(t, filepath.Join(repo, "project-context.json"), config)
 	if out := wantCode(t, 2, "doctor", repo); !strings.Contains(out, "FAIL  old layout  "+old) {
 		t.Errorf("doctor:\n%s", out)
 	}
-	os.Remove(configPath(repo))
+	os.Remove(workspace.ConfigPath(repo))
 	if out := wantCode(t, 2, "doctor", repo); !strings.Contains(out, "FAIL  project  "+old) || strings.Contains(out, "old layout") {
 		t.Errorf("doctor:\n%s", out)
 	}
 	os.Remove(old)
-	writeFile(t, configPath(repo), config)
+	writeFile(t, workspace.ConfigPath(repo), config)
 
 	os.Remove(settings)
 	if out := wantCode(t, 2, "doctor", repo); !strings.Contains(out, "ok    settings file  "+settings+" missing") {

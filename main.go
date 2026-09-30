@@ -2,12 +2,12 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"strings"
+
+	"github.com/luisferrassini/jev-check/internal/secretscan"
 )
 
 const usage = `Usage: jev-check <command> [args]
@@ -64,7 +64,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	code, err := cmd(args[1:], stdout, stderr)
-	var found secretsFound
+	var found secretscan.SecretsFound
 	if errors.As(err, &found) {
 		fmt.Fprintln(stdout, found)
 		return 1
@@ -77,34 +77,3 @@ func run(args []string, stdout, stderr io.Writer) int {
 }
 
 func isHelp(arg string) bool { return arg == "-h" || arg == "--help" }
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
-func readJSON(path string, v any) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	if err := json.Unmarshal(data, v); err != nil {
-		return fmt.Errorf("invalid JSON in %s: %w", path, err)
-	}
-	return nil
-}
-
-func writeJSON(w io.Writer, v any) error {
-	enc := json.NewEncoder(w)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
-	return enc.Encode(v)
-}
-
-// splitNUL splits git's -z output into paths.
-func splitNUL(out string) []string {
-	if out == "" {
-		return []string{}
-	}
-	return strings.Split(strings.TrimSuffix(out, "\x00"), "\x00")
-}

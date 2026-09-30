@@ -13,6 +13,9 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/luisferrassini/jev-check/internal/secretscan"
+	"github.com/luisferrassini/jev-check/internal/workspace"
 )
 
 const evalUsage = `Usage: jev-check eval <check> [DIR] [--no-cache] [--model ID]   (default DIR: .)
@@ -70,16 +73,16 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	p, err := loadProject(dir)
+	p, err := workspace.LoadProject(dir)
 	if err != nil {
 		return 0, err
 	}
-	i := slices.IndexFunc(p.Checks, func(c gateCheck) bool { return c.Check == name })
+	i := slices.IndexFunc(p.Checks, func(c workspace.GateCheck) bool { return c.Check == name })
 	if i < 0 {
-		return 0, fmt.Errorf("%s has no check %s", configPath(dir), name)
+		return 0, fmt.Errorf("%s has no check %s", workspace.ConfigPath(dir), name)
 	}
 	c := p.Checks[i]
-	questions, err := validateChecks(dir, []gateCheck{c})
+	questions, err := validateChecks(dir, []workspace.GateCheck{c})
 	if err != nil {
 		return 0, err
 	}
@@ -88,15 +91,15 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	if len(blocking) == 0 {
 		return 0, fmt.Errorf("check %s has no yes/no (noul) question, so there is no threshold to evaluate", name)
 	}
-	stylePaths, styles, err := loadStyles(dir, []gateCheck{c})
+	stylePaths, styles, err := workspace.LoadStyles(dir, []workspace.GateCheck{c})
 	if err != nil {
 		return 0, err
 	}
-	state, err := projectState(dir, p)
+	state, err := workspace.ProjectState(dir, p)
 	if err != nil {
 		return 0, err
 	}
-	fixtures := filepath.Join(dir, jevDir, "fixtures", name)
+	fixtures := filepath.Join(dir, workspace.JevDir, "fixtures", name)
 	jobs, err := findFixtures(fixtures, blocking)
 	if err != nil {
 		return 0, err
@@ -114,18 +117,18 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 		if err != nil {
 			return 0, fmt.Errorf("%s: %w", printable(filepath.Join(fixtures, job.rel)), err)
 		}
-		jobs[i].req = request{Model: cfg.model, Questions: questions[0], State: fileState(state, file, string(patch), stylePaths[0], styles)}
+		jobs[i].req = request{Model: cfg.model, Questions: questions[0], State: workspace.FileState(state, file, string(patch), stylePaths[0], styles)}
 	}
 	// A secret in the shared document is reported once, not once per fixture.
 	var blocked []string
 	holder := "a fixture"
-	if err := styleSecrets(styles); err != nil {
+	if err := secretscan.StyleSecrets(styles); err != nil {
 		blocked = append(blocked, err.Error())
 		holder = "the coding_style document"
 	} else {
 		for _, job := range jobs {
-			if err := scanRequest(job.req); err != nil {
-				blocked = append(blocked, fmt.Sprintf("== %s\n%v", safeLabel(job.rel, "a fixture"), err))
+			if err := secretscan.ScanRequest(job.req); err != nil {
+				blocked = append(blocked, fmt.Sprintf("== %s\n%v", secretscan.SafeLabel(job.rel, "a fixture"), err))
 			}
 		}
 	}
@@ -145,7 +148,7 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 			a := *res.Answers[job.question].Noul
 			negatives[job.question]++
 			highestFail[job.question] = max(highestFail[job.question], a)
-			if a >= c.limit(job.question) {
+			if a >= c.Limit(job.question) {
 				fmt.Fprintf(stdout, "MISS  %s  %s  %s passes it\n", formatFloat(a), job.question, printable(job.rel))
 				misses++
 			}
@@ -157,7 +160,7 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 			if low, ok := lowestPass[q]; !ok || a < low {
 				lowestPass[q] = a
 			}
-			if a < c.limit(q) {
+			if a < c.Limit(q) {
 				fmt.Fprintf(stdout, "MISS  %s  %s  %s fails it\n", formatFloat(a), q, printable(job.rel))
 				misses++
 			}
@@ -171,7 +174,7 @@ func evalCmd(args []string, stdout, stderr io.Writer) (int, error) {
 	// A question separates its fixtures when its highest fail is below its lowest pass.
 	fmt.Fprintln(stdout, "lowest-pass  highest-fail  threshold  question")
 	for _, q := range blocking {
-		fmt.Fprintf(stdout, "%-11s  %-12s  %-9s  %s\n", formatFloat(lowestPass[q]), formatFloat(highestFail[q]), formatFloat(c.limit(q)), q)
+		fmt.Fprintf(stdout, "%-11s  %-12s  %-9s  %s\n", formatFloat(lowestPass[q]), formatFloat(highestFail[q]), formatFloat(c.Limit(q)), q)
 	}
 	fmt.Fprintf(stdout, "eval: %d misses in %d fixtures\n", misses, len(jobs))
 	return min(misses, 1), nil

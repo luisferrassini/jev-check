@@ -11,6 +11,9 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/luisferrassini/jev-check/internal/fsutil"
+	"github.com/luisferrassini/jev-check/internal/workspace"
 )
 
 // bundleDir is where this repository keeps the published checks. It is tracked,
@@ -29,7 +32,7 @@ func bundledPath(kind, name string) string {
 
 // inputDir returns dir/.jev-check/input/<kind>, the folder that holds a project's checks or states.
 func inputDir(dir, kind string) string {
-	return filepath.Join(dir, jevDir, "input", kind)
+	return filepath.Join(dir, workspace.JevDir, "input", kind)
 }
 
 // inputPath returns dir/.jev-check/input/<kind>/<name>.json.
@@ -58,7 +61,7 @@ func missingCheck(project, name string) error {
 	}
 	add := "jev-check add " + name
 	if cwd, _ := filepath.Abs("."); cwd != project {
-		add = "jev-check add --dir " + shellQuote(project) + " " + name
+		add = "jev-check add --dir " + fsutil.ShellQuote(project) + " " + name
 	}
 	return fmt.Errorf("no check %q: %s does not exist; copy the bundled one with: %s", name, file, add)
 }
@@ -124,26 +127,10 @@ func addChecks(dir string, names []string, stdout io.Writer) error {
 			} else if err != nil {
 				return err
 			}
-			if err := installFile(inputPath(dir, kind, name), string(data), stdout); err != nil {
+			if err := fsutil.InstallFile(inputPath(dir, kind, name), string(data), stdout); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
-}
-
-// installFile creates path with content and reports it, or reports that an existing file was kept.
-func installFile(path, content string, stdout io.Writer) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	err := createFile(path, content)
-	if errors.Is(err, fs.ErrExist) {
-		fmt.Fprintf(stdout, "kept    %s\n", path)
-		return nil
-	}
-	if err == nil {
-		fmt.Fprintf(stdout, "created %s\n", path)
-	}
-	return err
 }

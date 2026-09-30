@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/luisferrassini/jev-check/internal/fsutil"
+	"github.com/luisferrassini/jev-check/internal/workspace"
 )
 
 // cacheRepo makes a git project with one staged file and the public-release check,
@@ -16,7 +19,7 @@ func cacheRepo(t *testing.T, requests *[]request) (string, string) {
 	t.Helper()
 	repo := t.TempDir()
 	gitInit(t, repo)
-	writeFile(t, configPath(repo), `{"purpose":"One.","exclude":[".jev-check/input/","*.md"],"checks":[{"check":"public-release","threshold":0.2}]}`)
+	writeFile(t, workspace.ConfigPath(repo), `{"purpose":"One.","exclude":[".jev-check/input/","*.md"],"checks":[{"check":"public-release","threshold":0.2}]}`)
 	writeFile(t, filepath.Join(repo, "a.txt"), "a\n")
 	gitRun(t, repo, "add", "a.txt")
 	*requests = nil
@@ -45,7 +48,7 @@ func gateCalls(t *testing.T, requests *[]request, want int, args ...string) (int
 func entry(t *testing.T, path string) map[string]json.RawMessage {
 	t.Helper()
 	var e map[string]json.RawMessage
-	if err := readJSON(path, &e); err != nil {
+	if err := fsutil.ReadJSON(path, &e); err != nil {
 		t.Fatal(err)
 	}
 	return e
@@ -74,7 +77,7 @@ func TestCacheIdentity(t *testing.T) {
 	changes := map[string]func(){
 		"tree": func() { writeFile(t, filepath.Join(repo, "new.txt"), "x\n") },
 		"project": func() {
-			writeFile(t, configPath(repo), `{"purpose":"Two.","exclude":[".jev-check/input/","*.md"],"checks":[{"check":"public-release","threshold":0.2}]}`)
+			writeFile(t, workspace.ConfigPath(repo), `{"purpose":"Two.","exclude":[".jev-check/input/","*.md"],"checks":[{"check":"public-release","threshold":0.2}]}`)
 		},
 		"patch": func() {
 			writeFile(t, filepath.Join(repo, "a.txt"), "b\n")
@@ -85,12 +88,12 @@ func TestCacheIdentity(t *testing.T) {
 		},
 		"coding style": func() {
 			writeFile(t, filepath.Join(repo, "STYLE.md"), "Rule one.\n")
-			writeFile(t, configPath(repo), `{"purpose":"Two.","exclude":[".jev-check/input/","*.md"],"checks":[{"check":"public-release","threshold":0.2,"coding_style":"STYLE.md"}]}`)
+			writeFile(t, workspace.ConfigPath(repo), `{"purpose":"Two.","exclude":[".jev-check/input/","*.md"],"checks":[{"check":"public-release","threshold":0.2,"coding_style":"STYLE.md"}]}`)
 		},
 		"coding style content": func() { writeFile(t, filepath.Join(repo, "STYLE.md"), "Rule two.\n") },
 		"coding style path": func() {
 			writeFile(t, filepath.Join(repo, "OTHER.md"), "Rule two.\n")
-			writeFile(t, configPath(repo), `{"purpose":"Two.","exclude":[".jev-check/input/","*.md"],"checks":[{"check":"public-release","threshold":0.2,"coding_style":"OTHER.md"}]}`)
+			writeFile(t, workspace.ConfigPath(repo), `{"purpose":"Two.","exclude":[".jev-check/input/","*.md"],"checks":[{"check":"public-release","threshold":0.2,"coding_style":"OTHER.md"}]}`)
 		},
 	}
 	for _, name := range []string{"tree", "project", "patch", "questions", "coding style", "coding style content", "coding style path"} {
@@ -115,7 +118,7 @@ func TestCacheIdentity(t *testing.T) {
 	writeSettings(t, repo, fakeSettings)
 
 	// A threshold change judges the cached answers again, without a call.
-	writeFile(t, configPath(repo), `{"purpose":"Two.","exclude":[".jev-check/input/","*.md"],"checks":[{"check":"public-release","threshold":0.99,"coding_style":"OTHER.md"}]}`)
+	writeFile(t, workspace.ConfigPath(repo), `{"purpose":"Two.","exclude":[".jev-check/input/","*.md"],"checks":[{"check":"public-release","threshold":0.99,"coding_style":"OTHER.md"}]}`)
 	if n, cached := gateCalls(t, requests, 1, repo); n != 0 || !cached {
 		t.Errorf("threshold change sent %d requests, cached %v", n, cached)
 	}

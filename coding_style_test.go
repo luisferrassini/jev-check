@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/luisferrassini/jev-check/internal/workspace"
 )
 
 // styleRepo makes a git repo with a staged a.go and the given checks.
@@ -22,7 +24,7 @@ func styleRepo(t *testing.T, checks string) string {
 
 func styleConfig(t *testing.T, repo, checks string) {
 	t.Helper()
-	writeFile(t, configPath(repo), `{"exclude":[".jev-check/input/",".jev-check/fixtures/","CODING_STYLE.md"],"checks":[`+checks+`]}`)
+	writeFile(t, workspace.ConfigPath(repo), `{"exclude":[".jev-check/input/",".jev-check/fixtures/","CODING_STYLE.md"],"checks":[`+checks+`]}`)
 }
 
 // sentStyles returns each request's coding_style, by check.
