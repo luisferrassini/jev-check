@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -102,9 +103,6 @@ func listCmd(args []string, stdout, _ io.Writer) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		if _, err := parseQuestions(c.path, c.data); err != nil {
-			return 0, err
-		}
 		tag := "project"
 		if hasConfig {
 			tag += ", not in checks"
@@ -117,7 +115,7 @@ func listCmd(args []string, stdout, _ io.Writer) (int, error) {
 		} else {
 			tag += ", needs --file"
 		}
-		printCheck(stdout, name, tag, c.data)
+		printCheck(stdout, name, tag, c.raw)
 		have = append(have, name)
 	}
 	for _, name := range bundledNames() {
@@ -188,16 +186,17 @@ func askCmd(args []string, stdout, _ io.Writer) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	name, questions, defaultState, err := loadCheck(project, positional[0])
+	c, err := findCheck(project, positional[0])
 	if err != nil {
 		return 0, err
 	}
+	name := c.name
 	state := map[string]any{}
 	switch {
 	case len(positional) == 2:
 		err = readJSON(positional[1], &state)
-	case defaultState != nil:
-		if err = json.Unmarshal(defaultState, &state); err != nil {
+	case c.state != nil:
+		if err = json.Unmarshal(c.state, &state); err != nil {
 			err = fmt.Errorf("invalid JSON in the default state of %s: %w", name, err)
 		}
 	case len(files) == 0:
@@ -224,7 +223,7 @@ func askCmd(args []string, stdout, _ io.Writer) (int, error) {
 		stateFiles[path] = string(content)
 	}
 
-	req := request{Model: cfg.model, Questions: questions, State: state}
+	req := request{Model: cfg.model, Questions: c.questions, State: state}
 	if err := scanRequest(req); err != nil {
 		return 0, err
 	}
@@ -243,30 +242,49 @@ func askCmd(args []string, stdout, _ io.Writer) (int, error) {
 	return 0, nil
 }
 
-// foundCheck is a named check's question file and its optional default state.
-// path names the question file in errors.
-type foundCheck struct {
-	path        string
-	data, state []byte
+// check is a loaded check. path names the question file in errors, raw holds its bytes,
+// and state is its default state, nil when there is none.
+type check struct {
+	name, path string
+	raw, state []byte
+	questions  map[string]json.RawMessage
 }
 
-// findCheck reads project/.jev-check/input/questions/<name>.json and its optional default state
-// from input/states/. It never reads the bundle: a project runs only the checks it holds.
-func findCheck(project, name string) (foundCheck, error) {
-	read := func(kind string) ([]byte, error) {
-		return os.ReadFile(filepath.Join(project, jevDir, "input", kind, name+".json"))
+// findCheck reads a check by path, or by name from project/.jev-check/input/questions/<name>.json
+// with its optional default state from input/states/. It never reads the bundle: a project runs
+// only the checks it holds.
+func findCheck(project, arg string) (check, error) {
+	c := check{name: strings.TrimSuffix(filepath.Base(arg), ".json"), path: arg}
+	var err error
+	switch {
+	case strings.HasSuffix(arg, ".json"):
+		c.raw, err = os.ReadFile(arg)
+	case !checkName.MatchString(arg):
+		return c, errors.New("check names use only letters, digits, - and _")
+	default:
+		c.path = filepath.Join(project, jevDir, "input", "questions", arg+".json")
+		if c.raw, err = os.ReadFile(c.path); err == nil {
+			c.state, err = os.ReadFile(filepath.Join(project, jevDir, "input", "states", arg+".json"))
+			if errors.Is(err, fs.ErrNotExist) {
+				err = nil
+			}
+		}
 	}
-	c := foundCheck{path: filepath.Join(project, jevDir, "input", "questions", name+".json")}
-	data, err := read("questions")
-	if err != nil {
+	if errors.Is(err, fs.ErrNotExist) && c.path != arg {
+		return c, missingCheck(project, c.name)
+	} else if errors.Is(err, fs.ErrNotExist) {
+		return c, fmt.Errorf("no check file %s", arg)
+	} else if err != nil {
 		return c, err
 	}
-	c.data = data
-	c.state, err = read("states")
-	if errors.Is(err, fs.ErrNotExist) {
-		err = nil
-	}
+	c.questions, err = parseQuestions(c.path, c.raw)
 	return c, err
+}
+
+// loadCheck is findCheck as loose values: name, questions, and default state.
+func loadCheck(project, arg string) (string, map[string]json.RawMessage, []byte, error) {
+	c, err := findCheck(project, arg)
+	return c.name, c.questions, c.state, err
 }
 
 func parseQuestions(path string, data []byte) (map[string]json.RawMessage, error) {
@@ -282,31 +300,18 @@ func parseQuestions(path string, data []byte) (map[string]json.RawMessage, error
 	return check.Questions, nil
 }
 
-// loadCheck reads a check by name from project/.jev-check/input/, or by path.
-// It returns the check's name, its questions, and its default state, which is nil when there is none.
-func loadCheck(project, arg string) (string, map[string]json.RawMessage, []byte, error) {
-	name, path := strings.TrimSuffix(filepath.Base(arg), ".json"), arg
-	var data, state []byte
-	var err error
-	switch {
-	case strings.HasSuffix(arg, ".json"):
-		data, err = os.ReadFile(arg)
-	case !checkName.MatchString(arg):
-		return "", nil, nil, errors.New("check names use only letters, digits, - and _")
-	default:
-		var c foundCheck
-		c, err = findCheck(project, arg)
-		path, data, state = c.path, c.data, c.state
+// noulIDs returns the sorted ids of the yes/no (noul) questions.
+func noulIDs(questions map[string]json.RawMessage) []string {
+	var ids []string
+	for _, id := range slices.Sorted(maps.Keys(questions)) {
+		var q struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(questions[id], &q) == nil && q.Type == "noul" {
+			ids = append(ids, id)
+		}
 	}
-	if errors.Is(err, fs.ErrNotExist) && path != arg {
-		return "", nil, nil, missingCheck(project, name)
-	} else if errors.Is(err, fs.ErrNotExist) {
-		return "", nil, nil, fmt.Errorf("no check file %s", arg)
-	} else if err != nil {
-		return "", nil, nil, err
-	}
-	questions, err := parseQuestions(path, data)
-	return name, questions, state, err
+	return ids
 }
 
 // validateAnswers rejects incomplete or invalid answers before they can pass a check.
