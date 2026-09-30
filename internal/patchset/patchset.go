@@ -117,7 +117,7 @@ func PatchPath(patch string) (string, error) {
 			}
 		}
 	}
-	if err := CheckHunks(hunks); err != nil {
+	if err := checkHunks(hunks); err != nil {
 		return "", err
 	}
 	_, hasMinus := h["--- "]
@@ -140,7 +140,7 @@ func PatchPath(patch string) (string, error) {
 		if !ok || v == "/dev/null" && prefix != "" {
 			continue
 		}
-		path, err := DecodePath(v, prefix)
+		path, err := decodePath(v, prefix)
 		if err != nil {
 			return "", err
 		}
@@ -162,9 +162,9 @@ func PatchPath(patch string) (string, error) {
 	return cmp.Or(newPath, oldPath, paths["rename to "]), nil
 }
 
-// CheckHunks follows each hunk's line counts, so a --- or +++ line after a hunk ends
+// checkHunks follows each hunk's line counts, so a --- or +++ line after a hunk ends
 // is found as a second file section without its own diff --git line.
-func CheckHunks(lines []string) error {
+func checkHunks(lines []string) error {
 	oldLeft, newLeft := 0, 0
 	for _, l := range lines {
 		switch {
@@ -188,8 +188,8 @@ func CheckHunks(lines []string) error {
 				return errors.New("has an invalid @@ hunk header")
 			}
 			var err error
-			if oldLeft, err = HunkCount(f[1], "-"); err == nil {
-				newLeft, err = HunkCount(f[2], "+")
+			if oldLeft, err = hunkCount(f[1], "-"); err == nil {
+				newLeft, err = hunkCount(f[2], "+")
 			}
 			if err != nil {
 				return err
@@ -201,8 +201,8 @@ func CheckHunks(lines []string) error {
 	return nil
 }
 
-// HunkCount returns the line count of one @@ range, such as -3,4 or +5 (one line).
-func HunkCount(field, sign string) (int, error) {
+// hunkCount returns the line count of one @@ range, such as -3,4 or +5 (one line).
+func hunkCount(field, sign string) (int, error) {
 	field, ok := strings.CutPrefix(field, sign)
 	start, count, hasCount := strings.Cut(field, ",")
 	if !hasCount {
@@ -216,10 +216,10 @@ func HunkCount(field, sign string) (int, error) {
 	return n, nil
 }
 
-// DecodePath decodes one path field of a git header and strips its a/ or b/ prefix.
+// decodePath decodes one path field of a git header and strips its a/ or b/ prefix.
 // Git ends an unquoted path that holds a space with a tab, and quotes any path with
 // a tab, quote, backslash, control, or (by default) non-ASCII character.
-func DecodePath(field, prefix string) (string, error) {
+func decodePath(field, prefix string) (string, error) {
 	field = strings.TrimSuffix(field, "\t")
 	if strings.HasPrefix(field, `"`) {
 		// Git writes only C escapes and three-digit octal bytes, fewer than strconv.Unquote accepts.

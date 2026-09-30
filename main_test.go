@@ -237,6 +237,11 @@ func TestSecrets(t *testing.T) {
 	wantCode(t, 0, "secrets", writeFile(t, filepath.Join(dir, "clean.patch"), "+"+strings.Join(clean, "\n+")+"\n"))
 
 	sources, _ := filepath.Glob("*.go")
+	internal, _ := filepath.Glob("internal/*/*.go")
+	sources = append(sources, internal...)
+	if len(internal) == 0 {
+		t.Fatal("found no internal/*/*.go to scan")
+	}
 	for _, source := range sources {
 		content, err := os.ReadFile(source)
 		if err != nil {

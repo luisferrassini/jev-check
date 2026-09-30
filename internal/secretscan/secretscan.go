@@ -12,13 +12,13 @@ import (
 	"unicode"
 )
 
-type SecretPattern struct {
+type secretPattern struct {
 	kind string
 	re   *regexp.Regexp
 }
 
 // Generic assignments need a digit inside the value, so placeholders like your-api-key-here pass.
-var SecretPatterns = []SecretPattern{
+var secretPatterns = []secretPattern{
 	{"private-key", regexp.MustCompile(`-----BEGIN ([A-Z0-9]+ )*PRIVATE KEY( BLOCK)?-----`)},
 	{"aws-access-key", regexp.MustCompile(`\b(AKIA|ASIA|ABIA|ACCA)[0-9A-Z]{16}\b`)},
 	{"aws-secret-key", regexp.MustCompile(`(?i)aws.{0,20}(secret|private).{0,20}[:=]\s*["']?[A-Za-z0-9/+]{40}\b`)},
@@ -51,7 +51,7 @@ func ScanSecrets(name, patch string) []string {
 func SecretReports(label, text string, lines bool) []string {
 	var reports []string
 	split := strings.Split(text, "\n")
-	for _, p := range SecretPatterns {
+	for _, p := range secretPatterns {
 		var hits []string
 		for i, line := range split {
 			// Also try without one diff marker, so anchored patterns match removed lines,
@@ -105,7 +105,7 @@ func ScanRequest(req any) error {
 		return err
 	}
 	var reports []string
-	ScanValue("request", v, &reports)
+	scanValue("request", v, &reports)
 	if reports == nil {
 		return nil
 	}
@@ -119,16 +119,16 @@ func ScanRequest(req any) error {
 	return SecretsFound(unique)
 }
 
-// ScanValue scans each string with its line numbers, each object key, and each
+// scanValue scans each string with its line numbers, each object key, and each
 // scalar entry or scalar array item as a quoted assignment, since a value like abc123def456
 // only looks like a secret next to a key like password. Labels use safe keys or entry numbers.
-func ScanValue(label string, v any, reports *[]string) {
+func scanValue(label string, v any, reports *[]string) {
 	switch v := v.(type) {
 	case string:
 		*reports = append(*reports, SecretReports(label, v, strings.Contains(v, "\n"))...)
 	case []any:
 		for i, e := range v {
-			ScanValue(fmt.Sprintf("%s[%d]", label, i), e, reports)
+			scanValue(fmt.Sprintf("%s[%d]", label, i), e, reports)
 		}
 	case map[string]any:
 		for i, k := range slices.Sorted(maps.Keys(v)) {
@@ -145,7 +145,7 @@ func ScanValue(label string, v any, reports *[]string) {
 					}
 				}
 			}
-			ScanValue(entry, v[k], reports)
+			scanValue(entry, v[k], reports)
 		}
 	}
 }
